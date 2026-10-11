@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% set bare = True %}
+{% import "_ui.html" as ui %}
+{% block title %}Skipture: the scriptorium gate{% endblock %}
+{% block body %}
+<div class="login">
+  <img class="mark" src="/static/icons/icon-192.png" width="96" height="96" alt="">
+  {% call ui.title('i-login', 'Choose a passphrase' if mode == 'setup' else 'The scriptorium is locked') %}{% if mode == "setup" %}The first visit sets the passphrase that guards your sprite libraries. Ten characters or more.{% else %}Enter the passphrase you chose on the first visit.{% endif %}{% endcall %}
+  <form class="card" method="post" action="/{{ 'setup' if mode == 'setup' else 'login' }}">
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label class="f">Passphrase<input type="password" name="passphrase" autocomplete="{{ 'new-password' if mode == 'setup' else 'current-password' }}" required autofocus></label>
+    {% if mode == "setup" %}<label class="f">Again<input type="password" name="confirm" autocomplete="new-password" required></label>{% endif %}
+    <button class="btn" type="submit">{% if mode == "setup" %}Save it{% else %}Enter{% endif %}</button>
+  </form>
+</div>
+{% endblock %}

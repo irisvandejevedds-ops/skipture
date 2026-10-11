@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_bar.html" as b %}
+{% block title %}Skipture: libraries{% endblock %}
+{% block body %}
+{% call ui.title('i-libs', 'Libraries') %}Every sprite and texture set across your apps. Each slot is as received, redrawn by you, or humanized, which only happens when you sign it off by hand. The percentage counts humanized slots.{% endcall %}
+{% if all.total %}
+<div class="card">{% call ui.head('i-all', 'Everything together') %}All libraries combined. Humanized slots as a share of every slot.{% endcall %}
+  <div class="bignum">{{ all.pct }}<small>%</small></div><p class="small">{{ all.humanized }} of {{ all.total }} sprites humanized</p></div>
+{% endif %}
+{% set ns = namespace(app=None) %}
+{% for r in rows %}
+  {% if r.lib.app != ns.app %}{% set ns.app = r.lib.app %}<h2 class="apphead">{{ r.lib.app or 'No app' }}</h2>{% endif %}
+  <a class="card libcard" href="/library/{{ r.lib.id }}">
+    <div class="cardhead"><h3>{{ r.lib.name }}</h3><span class="pct">{{ r.p.pct }}%</span></div>
+    {{ b.bar(r.p) }}
+    <p class="small">{{ r.p.humanized }} of {{ r.p.total }} humanized{% if r.p.counts.empty %} &middot; {{ r.p.counts.empty }} waiting for art{% endif %}</p>
+  </a>
+{% else %}
+  <div class="card"><h3>Nothing yet</h3><p>Import a library zip, or start an empty library.</p><div class="row"><a class="btn" href="/import">Import</a></div></div>
+{% endfor %}
+<div class="card">{% call ui.head('i-new', 'New library') %}An empty library is a set of slots you define. Add slots one by one, then send the schema to a developer so they can fill it in.{% endcall %}
+  <form method="post" action="/library">
+    <div class="grid2"><label class="f">Name<input type="text" name="name" required maxlength="80"></label>
+      <label class="f">App<input type="text" name="app" maxlength="60" placeholder="Alberich"></label></div>
+    <label class="f">Description<input type="text" name="description" maxlength="500"></label>
+    <button class="btn" type="submit">Create</button></form></div>
+{% endblock %}

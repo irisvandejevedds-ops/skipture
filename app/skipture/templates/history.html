@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Skipture: {{ s.name }} history{% endblock %}
+{% block body %}
+{% call ui.title('i-hist', s.name ~ ': earlier versions') %}Every save keeps the picture it replaced, newest first, up to 25. Restoring one keeps the current art as a version too, so nothing is lost either way.{% endcall %}
+<p><a class="btn ghost" href="/sprite/{{ s.id }}">Back to the editor</a></p>
+<div class="grid">
+{% for r in revs %}
+  <form class="tile" method="post" action="/sprite/{{ s.id }}/restore"><input type="hidden" name="revision" value="{{ r.id }}">
+    <span class="thumb{% if s.bg_mode == 'transparent' %} checker{% endif %}">{% set sc = thumb_scale(s.width, s.height) %}<img class="px{% if s.width > 96 or s.height > 96 %} big{% endif %}" src="/revision/{{ r.id }}/png" width="{{ s.width * sc }}" height="{{ s.height * sc }}" alt=""></span>
+    <span class="meta"><span class="chip {{ r.state }}">{{ state_words[r.state] }}</span></span>
+    <span class="name">{{ r.created_at[:16]|replace('T',' ') }}</span><span class="dim">{{ r.note }}</span>
+    <button class="btn ghost" type="submit">Restore</button></form>
+{% else %}<p class="muted">No earlier versions yet.</p>{% endfor %}
+</div>
+{% endblock %}

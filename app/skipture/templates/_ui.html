@@ -1,0 +1,3 @@
+{# An "i" button that opens a callout. Pure CSS: a hidden checkbox keeps the open/closed state. #}
+{% macro head(uid, title) %}<input type="checkbox" id="{{ uid }}" class="infotoggle"><h3><span>{{ title }}</span>{% if caller %}<label for="{{ uid }}" class="infobtn" aria-label="More about this">i</label>{% endif %}</h3>{% if caller %}<div class="callout">{{ caller() }}</div>{% endif %}{% endmacro %}
+{% macro title(uid, text) %}<input type="checkbox" id="{{ uid }}" class="infotoggle"><h1><span>{{ text }}</span>{% if caller %}<label for="{{ uid }}" class="infobtn" aria-label="More about this">i</label>{% endif %}</h1>{% if caller %}<div class="callout">{{ caller() }}</div>{% endif %}{% endmacro %}

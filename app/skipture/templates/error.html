@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Skipture: {{ title|lower }}{% endblock %}
+{% block body %}
+<h1>{{ title }}</h1>
+<div class="card"><h3>Smudged</h3><p>{{ message }}</p>
+  <div class="row"><a class="btn" href="{{ back }}">Go back</a><a class="btn ghost" href="/">Libraries</a></div></div>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}{% set wide = True %}
+{% import "_ui.html" as ui %}
+{% block title %}Skipture: {{ s.name }}{% endblock %}
+{% block body %}
+<div id="editor" data-w="{{ s.width }}" data-h="{{ s.height }}" data-png="/sprite/{{ s.id }}/png?v={{ s.updated_at }}" data-original="/sprite/{{ s.id }}/png?which=original&amp;v={{ s.id }}-{{ s.origin }}"
+     data-save="/sprite/{{ s.id }}/save" data-bg-mode="{{ s.bg_mode }}" data-bg-color="{{ s.bg_color }}" data-state="{{ s.state }}" data-tile="{{ s.tile }}"
+     data-next="{{ '/sprite/%d' % next.id if next else '' }}" data-todo="{{ '/sprite/%d' % todo.id if todo else '' }}" data-lib="/library/{{ lib.id }}">
+  <div class="crumbs"><a href="/library/{{ lib.id }}">&larr; {{ lib.name }}</a>
+    <span class="navs">{% if prev %}<a class="btn ghost sm" href="/sprite/{{ prev.id }}" data-guard>&lsaquo; Prev</a>{% endif %}{% if next %}<a class="btn ghost sm" href="/sprite/{{ next.id }}" data-guard>Next &rsaquo;</a>{% endif %}</span></div>
+  {% call ui.title('i-ed', s.name) %}Pen paints one pixel, drag to draw. Eraser clears to transparent (or to the background colour on an opaque sprite). Fill floods the connected area of one exact colour. Keys: B pen, E eraser, G fill, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Y redo. Nothing is stored until you press Save. This slot is {{ s.width }}&times;{{ s.height }}{% if s.kind == 'texture' %}, a texture{% if s.tile %} that tiles seamlessly{% endif %}{% endif %}; its size cannot change because the developer's file must match it.{% endcall %}
+  <p class="small"><span class="chip {{ s.state }}" id="statechip">{{ state_words[s.state] }}</span>
+    <span id="changed" class="dim">{% if s.changed_px %}{{ s.changed_px }} px redrawn{% endif %}</span>
+    <span class="dim">&middot; {{ p.humanized }} of {{ p.total }} in the library humanized</span>
+    {% if s.notes %}<span class="dim">&middot; {{ s.notes }}</span>{% endif %}</p>
+
+  <div class="workbench">
+    <section class="canvaspane">
+      <div class="toolbar" role="toolbar" aria-label="Tools">
+        <button type="button" class="tool on" data-tool="pen" title="Pen (B)">Pen</button>
+        <button type="button" class="tool" data-tool="erase" title="Eraser (E)">Erase</button>
+        <button type="button" class="tool" data-tool="fill" title="Fill (G)">Fill</button>
+        <span class="sep"></span>
+        <button type="button" class="tool plain" id="undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <button type="button" class="tool plain" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+        <span class="sep"></span>
+        <button type="button" class="tool plain" id="zoomout" title="Smaller">&minus;</button>
+        <button type="button" class="tool plain" id="zoomin" title="Larger">+</button>
+        <button type="button" class="tool plain on" id="gridbtn" title="Grid" aria-pressed="true">Grid</button>
+      </div>
+      <div id="stage" class="stage checker"><div class="stack"><canvas id="cv" aria-label="Sprite canvas"></canvas><canvas id="grid" aria-hidden="true"></canvas></div></div>
+      <p class="small dim" id="pos">&nbsp;</p>
+      <div class="row savebar">
+        <button type="button" class="btn" id="save" disabled>Save</button>
+        {% if next %}<button type="button" class="btn ghost" id="savenext">Save &amp; next</button>{% endif %}
+        <span id="status" class="small dim" role="status"></span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">{% call ui.head('i-col', 'Colour') %}Drag round the ring for the hue, inside the square for shade. Or type a hex code. Recent colours and the colours already used in this sprite are below; tap one to pick it up.{% endcall %}
+        <div class="wheelwrap"><canvas id="wheel" width="208" height="208" aria-label="Colour wheel"></canvas></div>
+        <div class="row colrow"><span id="cur" class="swatch big" aria-label="Current colour"></span><input id="hex" type="text" maxlength="7" value="#B4452B" spellcheck="false" aria-label="Hex colour"></div>
+        <p class="label">Recent</p><div id="recent" class="swatches"></div>
+        <p class="label">In this sprite</p><div id="used" class="swatches"></div>
+      </div>
+      <div class="card">{% call ui.head('i-bg', 'Background') %}Transparent sprites show a checkerboard behind them. Opaque ones are fully filled: switching to opaque lays the background colour behind every see-through pixel (undo reverses it), and the eraser then paints the background colour. Switching back makes pixels of exactly that colour transparent again.{% endcall %}
+        <div class="seg"><label><input type="radio" name="bg" value="transparent"{% if s.bg_mode == 'transparent' %} checked{% endif %}> Transparent</label>
+          <label><input type="radio" name="bg" value="opaque"{% if s.bg_mode == 'opaque' %} checked{% endif %}> Opaque</label></div>
+        <div class="row"><span id="bgsw" class="swatch"></span><input id="bgcolor" type="text" maxlength="7" value="{{ s.bg_color }}" spellcheck="false" aria-label="Background colour"><button type="button" class="btn ghost sm" id="bguse">Use current</button></div>
+      </div>
+      <div class="card">{% call ui.head('i-pv', 'Preview') %}The sprite at its true size, enlarged, and beside the original art for comparison.{% if s.tile %} Textures are shown tiled three by three.{% endif %}{% endcall %}
+        <div class="previews">
+          <div><p class="label">Actual</p><div class="pvbox checker"><canvas id="pv1"></canvas></div></div>
+          <div><p class="label">Larger</p><div class="pvbox checker"><canvas id="pv3"></canvas></div></div>
+          <div><p class="label">Original</p><div class="pvbox checker"><canvas id="pvo"></canvas></div></div>
+          {% if s.tile %}<div><p class="label">Tiled</p><div class="pvbox checker"><canvas id="pvt"></canvas></div></div>{% endif %}
+        </div>
+      </div>
+      <div class="card">{% call ui.head('i-sign', 'Sign off') %}Humanized means you looked at this sprite and it is yours: nothing sloppy left. It is a deliberate step, so editing a humanized sprite sets it back to redrawn until you sign it off again. Resetting puts the original art back (the redrawn version is kept in history).{% endcall %}
+        <div class="row">
+          <form method="post" action="/sprite/{{ s.id }}/state" data-guard-form>{% if s.state == 'humanized' %}<input type="hidden" name="action" value="unhumanize"><button class="btn ghost" type="submit">Undo sign-off</button>{% else %}{% if s.state == 'empty' %}<span class="small dim">Draw something first, or wait for the developer's art.</span>{% else %}<input type="hidden" name="action" value="humanize"><button class="btn good" type="submit">Mark humanized</button>{% endif %}{% endif %}</form>
+          <form method="post" action="/sprite/{{ s.id }}/state" data-confirm="Put the original art back? The current picture stays in history."><input type="hidden" name="action" value="reset"><button class="btn ghost" type="submit">Reset to original</button></form>
+          <a class="btn ghost" href="/sprite/{{ s.id }}/history">History</a>
+        </div>
+      </div>
+      <div class="card">{% call ui.head('i-meta', 'About this slot') %}The slot id is <code>{{ s.slot }}</code> and the developer's file is sprites/{{ s.slot }}.png. Notes are written into the schema you send out, so developers see them.{% endcall %}
+        <form method="post" action="/sprite/{{ s.id }}/meta">
+          <label class="f">Name<input type="text" name="name" value="{{ s.name }}" maxlength="80"></label>
+          <div class="grid2"><label class="f">Kind<select name="kind"><option value="sprite"{% if s.kind == 'sprite' %} selected{% endif %}>sprite</option><option value="texture"{% if s.kind == 'texture' %} selected{% endif %}>texture</option></select></label>
+            <label class="f">Category<input type="text" name="category" value="{{ s.category }}" maxlength="40"></label></div>
+          <label class="check f"><input type="checkbox" name="tile" value="1"{% if s.tile %} checked{% endif %}> Tiles seamlessly</label>
+          <label class="f">Notes<input type="text" name="notes" value="{{ s.notes }}" maxlength="500"></label>
+          <button class="btn ghost" type="submit" data-guard-form>Save details</button></form>
+        <form method="post" action="/sprite/{{ s.id }}/delete" class="danger" data-confirm="Remove this slot from the library?"><label class="check f"><input type="checkbox" name="confirm" value="1"> Remove this slot</label><button class="btn warn" type="submit">Remove</button></form>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/core.js?v=1"></script><script src="/static/editor.js?v=1"></script>{% endblock %}

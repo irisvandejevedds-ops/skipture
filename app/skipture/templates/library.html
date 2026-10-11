@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% import "_bar.html" as b %}
+{% block title %}Skipture: {{ lib.name }}{% endblock %}
+{% block body %}
+{% call ui.title('i-lib', lib.name) %}<strong>Export schema</strong> makes a zip of empty slots with placeholder PNGs, for a developer to fill in and send back (use Import to take it in). <strong>Export library</strong> sends the art as it stands; it is marked complete only when every slot is humanized, otherwise it is a partial export and says so inside the zip. Library id: <code>{{ lib.slug }}</code>.{% endcall %}
+<p class="small muted">{{ lib.app or 'No app' }}{% if lib.description %} &middot; {{ lib.description }}{% endif %}</p>
+<div class="card">{% call ui.head('i-prog', 'How humanized') %}Humanized means you signed the slot off by hand. Redrawn means it was edited but not signed off. As received is the developer's or app's original art. The second number counts by pixel area instead of by sprite count.{% endcall %}
+  <div class="bignum">{{ p.pct }}<small>%</small></div>
+  {{ b.bar(p, True) }}
+  <p class="small">{{ p.humanized }} of {{ p.total }} sprites &middot; {{ p.area_pct }}% by pixel area</p>
+  {{ b.legend(p) }}
+  <div class="row">
+    <a class="btn ghost" href="/library/{{ lib.id }}/schema.zip">Export schema</a>
+    <a class="btn{% if not p.complete %} ghost{% endif %}" href="/library/{{ lib.id }}/export.zip">{{ 'Export library' if p.complete else 'Export partial' }}</a>
+    <a class="btn ghost" href="/import">Import art</a></div>
+</div>
+<div class="tabs">
+  <a href="/library/{{ lib.id }}"{% if not show %} aria-current="true"{% endif %}>All</a>
+  {% for st in ['empty','raw','touched','humanized'] %}<a href="/library/{{ lib.id }}?show={{ st }}"{% if show == st %} aria-current="true"{% endif %}>{{ state_words[st] }}</a>{% endfor %}
+</div>
+<div class="grid">
+{% for s in sprites %}
+  <a class="tile" href="/sprite/{{ s.id }}">
+    <span class="thumb{% if s.bg_mode == 'transparent' %} checker{% endif %}">{% set sc = thumb_scale(s.width, s.height) %}<img class="px{% if s.width > 96 or s.height > 96 %} big{% endif %}" src="/sprite/{{ s.id }}/png?v={{ s.updated_at }}" width="{{ s.width * sc }}" height="{{ s.height * sc }}" alt="{{ s.name }}" loading="lazy"></span>
+    <span class="name">{{ s.name }}</span>
+    <span class="meta"><span class="chip {{ s.state }}">{{ state_words[s.state] }}</span> <span class="dim">{{ s.width }}&times;{{ s.height }}</span></span>
+  </a>
+{% else %}
+  <p class="muted">Nothing in this view.</p>
+{% endfor %}
+</div>
+<div class="card">{% call ui.head('i-slot', 'Add a slot') %}A slot is one sprite or texture the app needs. Its id is what the developer's file is named (sprites/&lt;id&gt;.png). Size is fixed once art exists, so choose it carefully. Textures can be previewed tiled.{% endcall %}
+  <form method="post" action="/library/{{ lib.id }}/slot">
+    <div class="grid2"><label class="f">Id<input type="text" name="slot" required maxlength="64" pattern="[a-z0-9][a-z0-9_.\-]*" placeholder="frog-stage-0"></label>
+      <label class="f">Name<input type="text" name="name" maxlength="80"></label>
+      <label class="f">Width<input type="number" name="width" min="1" max="512" required></label>
+      <label class="f">Height<input type="number" name="height" min="1" max="512" required></label>
+      <label class="f">Kind<select name="kind"><option value="sprite">sprite</option><option value="texture">texture</option></select></label>
+      <label class="f">Background<select name="bg_mode"><option value="transparent">transparent</option><option value="opaque">opaque</option></select></label>
+      <label class="f">Category<input type="text" name="category" maxlength="40"></label>
+      <label class="check f"><input type="checkbox" name="tile" value="1"> Tiles seamlessly</label></div>
+    <label class="f">Notes for the developer<input type="text" name="notes" maxlength="500"></label>
+    <button class="btn" type="submit">Add slot</button></form></div>
+<div class="card">{% call ui.head('i-lset', 'Library settings') %}Rename the library or change which app it belongs to. The id stays the same so a developer's zip still matches. Deleting removes every slot, revision and export record and cannot be undone.{% endcall %}
+  <form method="post" action="/library/{{ lib.id }}/edit">
+    <div class="grid2"><label class="f">Name<input type="text" name="name" value="{{ lib.name }}" required maxlength="80"></label>
+      <label class="f">App<input type="text" name="app" value="{{ lib.app }}" maxlength="60"></label></div>
+    <label class="f">Description<input type="text" name="description" value="{{ lib.description }}" maxlength="500"></label>
+    <button class="btn" type="submit">Save</button></form>
+  <form method="post" action="/library/{{ lib.id }}/delete" class="danger"><label class="f">Type <code>{{ lib.slug }}</code> to delete this library<input type="text" name="confirm" autocomplete="off"></label>
+    <button class="btn warn" type="submit">Delete library</button></form></div>
+{% if exports %}<div class="card"><h3>Sent out</h3><ul class="plain">{% for e in exports %}<li>{{ e.created_at[:16]|replace('T',' ') }} &middot; {{ 'schema for a developer' if e.kind == 'schema' else ('finished library' if e.complete else 'partial library, ' ~ e.humanized ~ ' of ' ~ e.total ~ ' humanized') }}</li>{% endfor %}</ul></div>{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{# the humanization bar: humanized, redrawn, as received, waiting for art #}
+{% macro bar(p, big=False) %}
+<div class="hbar{% if big %} big{% endif %}" role="img" aria-label="{{ p.humanized }} of {{ p.total }} humanized">
+  {% if p.total %}
+  <i class="h" style="width:{{ 100 * p.counts.humanized / p.total }}%"></i><i class="t" style="width:{{ 100 * p.counts.touched / p.total }}%"></i><i class="r" style="width:{{ 100 * p.counts.raw / p.total }}%"></i><i class="e" style="width:{{ 100 * p.counts.empty / p.total }}%"></i>
+  {% endif %}
+</div>
+{% endmacro %}
+{% macro legend(p) %}
+<p class="small legend"><span class="chip humanized">{{ p.counts.humanized }} humanized</span> <span class="chip touched">{{ p.counts.touched }} redrawn</span> <span class="chip raw">{{ p.counts.raw }} as received</span>{% if p.counts.empty %} <span class="chip empty">{{ p.counts.empty }} waiting for art</span>{% endif %}</p>
+{% endmacro %}

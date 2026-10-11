@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Skipture: import{% endblock %}
+{% block body %}
+{% call ui.title('i-import', 'Import') %}Upload a library zip: either a developer's filled-in schema, or a library from another machine. If its library id matches one you already have, new art goes only into slots that are empty or still as received. Anything you redrew or humanized is kept. A zip for an unknown library creates it.{% endcall %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if report %}
+<div class="card"><h3>{{ 'Created' if report.created else 'Merged into' }} {{ report.library.name }}</h3>
+  <p><strong>{{ report.added|length + report.updated|length }}</strong> sprites taken in &middot; <strong>{{ report.kept|length }}</strong> kept as yours &middot; <strong>{{ report.skipped|length }}</strong> skipped &middot; <strong>{{ report.problems|length }}</strong> problems</p>
+  <div class="row"><a class="btn" href="/library/{{ report.library.id }}">Open the library</a></div></div>
+{% for title, items in [('Problems', report.problems), ('Kept as yours', report.kept), ('Skipped', report.skipped), ('Taken in', report.added + report.updated)] %}
+{% if items %}<div class="card"><h3>{{ title }}</h3><ul class="plain">{% for i in items %}<li>{{ i }}</li>{% endfor %}</ul></div>{% endif %}
+{% endfor %}
+{% endif %}
+<div class="card">{% call ui.head('i-file', 'Choose a zip') %}The zip must have schema.json at the top and sprites/&lt;slot&gt;.png for each slot. Sizes must match the slots exactly. Up to 40 MB.{% endcall %}
+  <form method="post" action="/import" enctype="multipart/form-data">
+    <label class="f">Library zip<input type="file" name="file" accept=".zip,application/zip" required></label>
+    <button class="btn" type="submit">Import</button></form></div>
+{% endblock %}
