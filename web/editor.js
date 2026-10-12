@@ -62,7 +62,7 @@
   }
 
   function fitZoom() {
-    var availW = Math.max(120, Math.min(stage.clientWidth - 20, 760)), availH = 620;
+    var availW = Math.max(120, stage.clientWidth - 24), availH = stage.clientHeight > 150 ? stage.clientHeight - 24 : 480;
     zoom = Math.max(1, Math.min(32, Math.floor(Math.min(availW / W, availH / H))));
   }
 
@@ -291,7 +291,7 @@
 
   // ---------- the colour pop-out ----------
   var pop = $('colpop'), colbtn = $('colbtn');
-  function showPop(on) { pop.hidden = !on; if (on) { pop.style.top = (colbtn.offsetTop + colbtn.offsetHeight + 8) + 'px'; pop.style.left = Math.max(0, Math.min(colbtn.offsetLeft, root.clientWidth - pop.offsetWidth - 4)) + 'px'; } colbtn.setAttribute('aria-expanded', String(on)); colbtn.classList.toggle('on', on); if (on) drawWheel(); }
+  function showPop(on) { pop.hidden = !on; if (on) { pop.style.top = (colbtn.offsetTop + colbtn.offsetHeight + 8) + 'px'; pop.style.left = Math.max(0, Math.min(colbtn.offsetLeft, (pop.offsetParent || root).clientWidth - pop.offsetWidth - 4)) + 'px'; } colbtn.setAttribute('aria-expanded', String(on)); colbtn.classList.toggle('on', on); if (on) drawWheel(); }
   colbtn.addEventListener('click', function (e) { e.stopPropagation(); showPop(pop.hidden); });
   listen(document, 'pointerdown', function (e) { if (!pop.hidden && !pop.contains(e.target) && !colbtn.contains(e.target)) showPop(false); });
   listen(document, 'keydown', function (e) { if (e.key === 'Escape' && !pop.hidden) { showPop(false); colbtn.focus(); } });
@@ -370,7 +370,7 @@
     var oc = $('pvo'); oc.width = W; oc.height = H; oc.getContext('2d').putImageData((function () { var d = ctx.createImageData(W, H); orig.toRGBA(d.data); return d; })(), 0, 0);
     var ok = Math.max(2, Math.min(6, Math.floor(160 / Math.max(W, H)) || 2)); oc.style.width = W * ok + 'px'; oc.style.height = H * ok + 'px';
     fitZoom(); layout(); setTool('pen'); setColor(color); drawRecent(); refreshUI();
-    if (ro) Array.prototype.forEach.call(document.querySelectorAll('.toolbar .tool:not(#zoomin):not(#zoomout):not(#gridbtn):not(#colbtn), #save, #savenext'), function (b) { b.disabled = true; });
+    if (ro) Array.prototype.forEach.call(document.querySelectorAll('.tools .tbtn:not(#zoomin):not(#zoomout):not(#gridbtn):not(#colbtn), #save, #savenext'), function (b) { b.disabled = true; });
     root.dataset.ready = '1';
     api.test = { doc: doc, undo: undo, redo: redo, setTool: setTool, setColor: setColor, setBg: function (m) { var r = document.querySelector('input[name=bg][value=' + m + ']'); r.checked = true; r.dispatchEvent(new Event('change')); } };
   }).catch(function (err) { $('status').textContent = 'Could not load this sprite: ' + err.message; });

@@ -1,9 +1,9 @@
-/* Skipture: the gate, the dashboard, libraries, the editor, import and the artist's libraries page. Talks to a room through api.js; the rules are in lib.js and ops.js. */
+/* Skipture: the gate, the browse pages, the workbench editor, import and the ledger. Talks to a room through api.js; the rules are in lib.js and ops.js. */
 (function () {
   'use strict';
   var L = window.SkipLib, O = window.SkipOps, A = window.SkipApi, E = window.SkipEditor, W = L.STATE_WORDS;
   var main = document.getElementById('main'), flashBox = document.getElementById('flash'), topnav = document.getElementById('topnav'), tabbar = document.getElementById('tabbar'), who = document.getElementById('who');
-  var api = null, editor = null, urls = [], routing = Promise.resolve(), makeRoom = null;
+  var api = null, editor = null, urls = [], routing = Promise.resolve(), makeRoom = null, ledger = null;
   var BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
 
   // ---------------- little helpers ----------------
@@ -22,27 +22,61 @@
     setTimeout(function () { URL.revokeObjectURL(u); }, 4000);
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
+  function isArtist() { return api && api.role === 'artist'; }
+  function when(iso) {
+    var t = Date.parse(iso); if (!t) return '';
+    var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    return m < 1 ? 'now' : m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago';
+  }
+
+  // ---------------- pixel icons ----------------
+  var ICON = {
+    pen: ['......#.', '.....###', '....###.', '...###..', '..###...', '.###....', '##......', '#.......'],
+    erase: ['........', '..#####.', '.#####.#', '#####.##', '####.##.', '###.##..', '.##.#...', '........'],
+    fill: ['...##...', '..#..#..', '.#....#.', '######.#', '#....#.#', '.#..#..#', '..##....', '........'],
+    undo: ['..#.....', '.##.....', '#######.', '.##...#.', '..#...#.', '......#.', '.#####..', '........'],
+    redo: ['.....#..', '.....##.', '.#######', '.#...##.', '.#...#..', '.#......', '..#####.', '........'],
+    plus: ['...##...', '...##...', '...##...', '########', '########', '...##...', '...##...', '...##...'],
+    minus: ['........', '........', '........', '########', '########', '........', '........', '........'],
+    grid: ['#.#.#.#.', '........', '#.#.#.#.', '........', '#.#.#.#.', '........', '#.#.#.#.', '........'],
+    check: ['........', '.......#', '......##', '#....##.', '##..##..', '.####...', '..##....', '........'],
+    folder: ['###.....', '#####...', '########', '#......#', '#......#', '#......#', '########', '........'],
+    imp: ['...##...', '...##...', '...##...', '######..', '.####...', '..##....', '........', '######..'],
+    lib: ['.######.', '#......#', '#.####.#', '#......#', '#.####.#', '#......#', '.######.', '........'],
+    dots: ['........', '........', '.#.#.#..', '........', '........', '........', '........', '........'],
+    dash: ['########', '#.#.#.##', '########', '#.#.#.##', '########', '#.#.#.##', '########', '........']
+  };
+  var iconCache = {};
+  function icon(n) {
+    if (!iconCache[n]) {
+      var c = document.createElement('canvas'); c.width = 8; c.height = 8; var x = c.getContext('2d'); x.fillStyle = '#000';
+      ICON[n].forEach(function (row, y) { for (var i = 0; i < 8; i++) if (row[i] === '#') x.fillRect(i, y, 1, 1); });
+      iconCache[n] = c.toDataURL();
+    }
+    return '<i class="ic" style="-webkit-mask-image:url(' + iconCache[n] + ');mask-image:url(' + iconCache[n] + ')"></i>';
+  }
+
+  // ---------------- html pieces ----------------
   function head(uid, title, info) {
     return '<input type="checkbox" id="' + uid + '" class="infotoggle"><h3><span>' + esc(title) + '</span>' + (info ? '<label for="' + uid + '" class="infobtn" aria-label="More about this">i</label>' : '') + '</h3>' + (info ? '<div class="callout">' + info + '</div>' : '');
   }
-  function title(uid, text, info) {
-    return '<input type="checkbox" id="' + uid + '" class="infotoggle"><h1><span>' + esc(text) + '</span>' + (info ? '<label for="' + uid + '" class="infobtn" aria-label="More about this">i</label>' : '') + '</h1>' + (info ? '<div class="callout">' + info + '</div>' : '');
+  function pagehead(uid, text, info, extra) {
+    return '<input type="checkbox" id="' + uid + '" class="infotoggle"><div class="pagehead"><h1>' + esc(text) + '</h1>' + (extra || '') + (info ? '<label for="' + uid + '" class="infobtn" aria-label="More about this">i</label>' : '') + '</div>' + (info ? '<div class="callout top">' + info + '</div>' : '');
+  }
+  function ph(uid, title, right, info) {
+    return '<input type="checkbox" id="' + uid + '" class="infotoggle"><div class="panelh"><span>' + esc(title) + '</span><span class="r">' + (right ? '<span>' + right + '</span>' : '') + (info ? '<label for="' + uid + '" class="infobtn" aria-label="More about this">i</label>' : '') + '</span></div>' + (info ? '<div class="callout">' + info + '</div>' : '');
   }
   function bar(p, big) {
-    if (!p.total) return '<div class="hbar' + (big ? ' big' : '') + '"></div>';
+    if (!p.total) return '<span class="hbar' + (big ? ' big' : '') + '"></span>';
     function w(n) { return 100 * n / p.total; }
-    return '<div class="hbar' + (big ? ' big' : '') + '" role="img" aria-label="' + p.humanized + ' of ' + p.total + ' humanized"><i class="h" style="width:' + w(p.counts.humanized) + '%"></i><i class="t" style="width:' + w(p.counts.touched) +
-      '%"></i><i class="r" style="width:' + w(p.counts.raw) + '%"></i><i class="e" style="width:' + w(p.counts.empty) + '%"></i></div>';
+    return '<span class="hbar' + (big ? ' big' : '') + '" role="img" aria-label="' + p.humanized + ' of ' + p.total + ' humanized"><i class="h" style="width:' + w(p.counts.humanized) + '%"></i><i class="u" style="width:' + w(p.counts.touched) +
+      '%"></i><i class="r" style="width:' + w(p.counts.raw) + '%"></i><i class="e" style="width:' + w(p.counts.empty) + '%"></i></span>';
   }
-  function legend(p) {
-    return '<p class="small legend"><span class="chip humanized">' + p.counts.humanized + ' humanized</span> <span class="chip touched">' + p.counts.touched + ' redrawn</span> <span class="chip raw">' + p.counts.raw + ' as received</span>' +
-      (p.counts.empty ? ' <span class="chip empty">' + p.counts.empty + ' waiting for art</span>' : '') + '</p>';
-  }
-  function scaleFor(w, h, box) { return Math.max(1, Math.floor((box || 96) / Math.max(w, h))); }
+  function chip(state, id) { return '<span class="chip ' + state + '"' + (id ? ' id="' + id + '"' : '') + '>' + W[state] + '</span>'; }
+  function pip(state) { return '<i class="pip ' + state + '" title="' + W[state] + '"></i>'; }
   /** a picture: from the page data when it came with it, otherwise fetched afterwards (see hydrate) */
-  function img(id, w, h, b64, box, alt) {
-    var sc = scaleFor(w, h, box), big = w > (box || 96) || h > (box || 96);
-    return '<img class="px' + (big ? ' big' : '') + '" data-sid="' + id + '" src="' + (b64 ? blobUrl(O.b64dec(b64)) : BLANK) + '"' + (b64 ? '' : ' data-lazy="1"') + ' width="' + w * sc + '" height="' + h * sc + '" alt="' + esc(alt || '') + '">';
+  function img(id, b64, alt) {
+    return '<img class="px" data-sid="' + id + '" src="' + (b64 ? blobUrl(O.b64dec(b64)) : BLANK) + '"' + (b64 ? '' : ' data-lazy="1"') + ' alt="' + esc(alt || '') + '">';
   }
   function hydrate() {
     $$('img[data-lazy]').forEach(function (im) {
@@ -50,8 +84,6 @@
       api.png(+im.dataset.sid, im.dataset.which || 'current').then(function (b) { im.src = blobUrl(b); }, function () { /* leave the blank */ });
     });
   }
-  function when(iso) { return String(iso || '').slice(0, 16).replace('T', ' '); }
-  function isArtist() { return api && api.role === 'artist'; }
 
   // ---------------- the gate ----------------
   var GATE_INFO = '<strong>Try it first.</strong> Type <code>DEMO</code> as the key to look around a demo room full of made-up libraries. It lives in this tab and is gone when you close it.<br><br>' +
@@ -62,7 +94,7 @@
     'The passphrase is scrambled in your browser before it is sent, so the server never sees it. If you forget it, it cannot be recovered.';
 
   function gatePage() {
-    var html = '<div class="gate"><div class="brandmark"><span class="mark">Skip<i>ture</i></span></div>';
+    var html = '<div class="gate-box"><div class="brandmark"><span class="mark">Skip<i>ture</i></span></div>';
     if (makeRoom) {
       html += '<div class="card">' + head('i-make', 'Make a new room?', 'No room has this key yet. If you meant to enter an existing room, press Back and check the key for typos. A new room is yours alone to run: the passphrase you set makes you its artist.') +
         '<p>No room has the key <strong>' + esc(makeRoom.key) + '</strong>. Make one, with you as its artist?</p>' +
@@ -81,39 +113,60 @@
   function startDemo() { return A.demo(window.SkipDemo.seed).then(start); }
   function lost() { api = null; A.leave(); makeRoom = null; flash('Your visit has ended. Enter the room again.', true); route(); }
 
-  // ---------------- the dashboard ----------------
-  async function dashboard() {
-    var d = await api.call('overview'), t = d.totals;
-    var html = title('i-dash', 'Dashboard', 'Everything in this room at a glance. <strong>Submitted</strong> counts the sprites that have art in them. <strong>Humanized</strong> counts the ones the artist has signed off by hand, which is the real measure of progress. Each library shows its progress beside one of its sprites; open a library to see its sprites, and open a sprite to draw on it.');
-    html += '<div class="stats"><div class="card">' + head('i-sub', 'Submitted', 'Sprites that have art, whoever brought it: a developer\'s picture, an import, or a drawing made here. Slots still waiting for art are not counted.') +
-      '<div class="bignum">' + t.submitted + '<small> of ' + t.sprites + '</small></div><p class="small">sprites have art</p></div>' +
-      '<div class="card">' + head('i-hum', 'Humanized', 'Signed off by the artist after looking at the sprite. The percentage is humanized sprites as a share of every sprite in the room.') +
-      '<div class="bignum teal">' + t.humanized + '<small> of ' + t.sprites + ' &middot; ' + t.pct + '%</small></div><p class="small">sprites signed off</p></div></div>';
-    var lastApp = null;
-    d.libraries.forEach(function (l) {
-      if (l.app !== lastApp) { lastApp = l.app; html += '<h2 class="apphead">' + esc(l.app || 'No app') + '</h2>'; }
-      var p = l.progress, r = l.rep;
-      html += '<a class="card libcard withthumb" href="#/library/' + l.id + '"><span class="thumbbox' + (r && r.bgMode === 'transparent' ? ' checker' : '') + '">' + (r ? img(r.id, r.width, r.height, r.png, 96, l.name) : '') + '</span>' +
-        '<span class="libinfo"><span class="cardhead"><h3>' + esc(l.name) + '</h3><span class="pct">' + p.pct + '%</span></span>' + bar(p) + '<p class="small">' + p.humanized + ' of ' + p.total + ' humanized &middot; ' + l.submitted + ' submitted' + (p.counts.empty ? ' &middot; ' + p.counts.empty + ' waiting for art' : '') + '</p></span></a>';
-    });
-    if (!d.libraries.length) html += '<div class="card"><h3>Nothing here yet</h3><p>This room has no libraries. Bring one in, or start one from scratch.</p><div class="row"><a class="btn" href="#/import">Import or build a library</a></div></div>';
-    return html;
+  // ---------------- loading the room ----------------
+  async function loadRoom() {
+    var ov = await api.call('overview');
+    var libs = await Promise.all(ov.libraries.map(function (l) { return api.call('library', { id: l.id }); }));
+    return { ov: ov, libs: libs };
   }
 
-  // ---------------- a library ----------------
-  async function libraryPage(id, q) {
-    var d = await api.call('library', { id: id }), lib = d.lib, p = d.progress;
-    var show = L.STATES.indexOf(q.show) >= 0 ? q.show : '', list = show ? d.sprites.filter(function (s) { return s.state === show; }) : d.sprites;
-    var html = title('i-lib', lib.name, 'Open any sprite to see it large and draw on it. ' + (isArtist() ? 'You are the artist here, so you can redraw anything and sign a sprite off as humanized. ' : 'As a guest you can draw on slots that are empty or still as received; once the artist redraws one it is theirs. ') + 'Library id: <code>' + esc(lib.slug) + '</code>.');
-    html += '<p class="small muted">' + esc(lib.app || 'No app') + (lib.description ? ' &middot; ' + esc(lib.description) : '') + '</p>';
-    html += '<div class="card">' + head('i-prog', 'How humanized', 'Humanized means the artist signed the slot off by hand. Redrawn means it was edited by the artist but not signed off. As received is the art as it was brought in. The second number counts by pixel area instead of by sprite count.') +
-      '<div class="bignum">' + p.pct + '<small>%</small></div>' + bar(p, true) + '<p class="small">' + p.humanized + ' of ' + p.total + ' sprites &middot; ' + p.areaPct + '% by pixel area</p>' + legend(p) + '</div>';
-    html += '<div class="tabs"><a href="#/library/' + id + '"' + (!show ? ' aria-current="true"' : '') + '>All</a>' + L.STATES.map(function (st) { return '<a href="#/library/' + id + '?show=' + st + '"' + (show === st ? ' aria-current="true"' : '') + '>' + W[st] + '</a>'; }).join('') + '</div>';
-    html += '<div class="grid">' + (list.length ? list.map(function (s) {
-      return '<a class="tile" href="#/sprite/' + s.id + '"><span class="thumb' + (s.bgMode === 'transparent' ? ' checker' : '') + '">' + img(s.id, s.width, s.height, s.png, 96, s.name) + '</span><span class="name">' + esc(s.name) + '</span><span class="meta"><span class="chip ' + s.state + '">' + W[s.state] + '</span> <span class="dim">' + s.width + '&times;' + s.height + '</span></span></a>';
-    }).join('') : '<p class="muted">Nothing in this view.</p>') + '</div>';
-    html += '<div class="card">' + head('i-slot', 'Add a slot', 'A slot is one sprite or texture the app needs. Its id is what the file is named (sprites/&lt;id&gt;.png in a zip). Size is fixed once art exists, so choose it carefully. Textures can be previewed tiled.') + slotForm(id) + '</div>';
-    return html;
+  /** the left-hand tree: every library with its progress, and the current library's sprites */
+  function sideTree(ov, curLib, sprites, curSprite) {
+    var html = '<div class="panelh"><span>Room</span><span class="num">' + ov.totals.sprites + ' sprites</span></div>';
+    html += '<a class="lib all' + (!curLib ? ' cur' : '') + '" href="#/"><span>Everything</span><span class="p num">' + ov.totals.pct + '%</span></a>';
+    var lastApp = null;
+    ov.libraries.forEach(function (l) {
+      if (l.app !== lastApp) { lastApp = l.app; html += '<div class="app-h">' + esc(l.app || 'No app') + '</div>'; }
+      html += '<a class="lib' + (l.id === curLib ? ' cur' : '') + '" href="#/library/' + l.id + '"><span>' + esc(l.name) + '</span><span class="p num">' + l.progress.pct + '%</span>' + bar(l.progress) + '</a>';
+      if (l.id === curLib && sprites) sprites.forEach(function (s) {
+        html += '<a class="spr' + (s.id === curSprite ? ' cur' : '') + '" href="#/sprite/' + s.id + '">' + img(s.id, s.png, '') + '<span class="nm">' + esc(s.slot) + '</span>' + pip(s.state) + '</a>';
+      });
+    });
+    return '<aside class="side">' + html + '</aside>';
+  }
+
+  // ---------------- browse: the whole room, or one library ----------------
+  async function browsePage(only) {
+    var d = await loadRoom(), libs = only ? d.libs.filter(function (x) { return x.lib.id === only; }) : d.libs;
+    if (only && !libs.length) return missing('That library is not here.');
+    var all = []; libs.forEach(function (x) { all = all.concat(x.sprites); });
+    var cnt = { empty: 0, raw: 0, touched: 0, humanized: 0 }; all.forEach(function (s) { cnt[s.state]++; });
+    var total = all.length, pct = total ? Math.floor(100 * cnt.humanized / total) : 0, submitted = total - cnt.empty;
+    var prog = { total: total, humanized: cnt.humanized, counts: cnt };
+    var title = only ? libs[0].lib.name : 'Dashboard';
+    var info = only ? 'Open any sprite to see it large and draw on it. ' + (isArtist() ? 'You are the artist here, so you can redraw anything and sign a sprite off as humanized. ' : 'As a guest you can draw on slots that are empty or still as received; once the artist redraws one it is theirs. ') + 'Library id: <code>' + esc(libs[0].lib.slug) + '</code>.'
+      : 'Every sprite in this room as a tile with a dot for its state. <strong>Submitted</strong> counts the sprites that have art in them. <strong>Humanized</strong> counts the ones the artist has signed off by hand, which is the real measure of progress. The buttons filter the tiles by state; the box filters by name. Open a tile to draw on it.';
+    var html = '<div class="shell">' + sideTree(d.ov, only || 0, null, 0) + '<section class="content" id="content" data-f="">';
+    html += pagehead('i-dash', title, info);
+    html += '<div class="stats"><div class="stat"><span class="lab">Submitted</span><div class="bignum">' + submitted + '<small>of ' + total + '</small></div></div>' +
+      '<div class="stat h"><span class="lab">Humanized</span><div class="bignum">' + cnt.humanized + '<small>' + pct + '%</small></div>' + bar(prog, true) + '</div></div>';
+    html += '<div class="filters" id="filters"><span class="f1 on" data-filter="">All <em>' + total + '</em></span>' +
+      ['empty', 'raw', 'touched', 'humanized'].map(function (st) { return '<span class="f1" data-filter="' + st + '">' + pip(st) + W[st] + ' <em>' + cnt[st] + '</em></span>'; }).join('') +
+      '<input type="search" id="tilefind" placeholder="Filter by name…" aria-label="Filter sprites by name"></div>';
+    var lastApp = null;
+    libs.forEach(function (x) {
+      var l = x.lib, p = x.progress;
+      if (!only && l.app !== lastApp) lastApp = l.app;
+      html += '<div class="lh"><a href="#/library/' + l.id + '">' + esc(l.name) + '</a>' + bar(p, true) + '<span class="num">' + p.humanized + '/' + p.total + ' &middot; ' + p.pct + '%</span><span class="sp"></span><span>' + esc(l.app || '') + '</span></div><div class="grid">' +
+        x.sprites.map(function (s) {
+          return '<a class="t s-' + s.state + '" href="#/sprite/' + s.id + '" title="' + esc(s.name) + '" data-name="' + esc((s.name + ' ' + s.slot).toLowerCase()) + '">' + pip(s.state) + '<span class="th checker sm">' + img(s.id, s.png, s.name) + '</span><span class="id">' + esc(s.slot) + '</span></a>';
+        }).join('') + '</div>';
+    });
+    if (!libs.length) html += '<div class="card">' + head('i-none', 'Nothing here yet') + '<p>This room has no libraries. Bring one in, or start one from scratch.</p><div class="row"><a class="btn" href="#/import">Import or build a library</a></div></div>';
+    if (only) {
+      html += '<div class="card slotform">' + head('i-slot', 'Add a slot', 'A slot is one sprite or texture the app needs. Its id is what the file is named (sprites/&lt;id&gt;.png in a zip). Size is fixed once art exists, so choose it carefully. Textures can be previewed tiled.') + slotForm(only) + '</div>';
+    }
+    return html + '</section></div>';
   }
   function slotForm(libId) {
     return '<form data-act="addslot" data-id="' + libId + '"><div class="grid2"><label class="f">Id<input type="text" name="slot" required maxlength="64" pattern="[a-z0-9][a-z0-9_.\\-]*" placeholder="frog-stage-0"></label><label class="f">Name<input type="text" name="name" maxlength="80"></label>' +
@@ -123,36 +176,55 @@
       '<label class="f">Notes<input type="text" name="notes" maxlength="500"></label><button class="btn" type="submit">Add slot</button></form>';
   }
 
-  // ---------------- the editor ----------------
+  // ---------------- the editor: workbench ----------------
+  function signRow(state, id) {
+    return (state === 'humanized' ? '<button class="tbtn" type="button" data-do="state" data-action="unhumanize" data-id="' + id + '">Undo sign-off</button>' : state === 'empty' ? '<span class="small dim">Draw something first, or bring in a picture.</span>' : '<button class="tbtn good" type="button" data-do="state" data-action="humanize" data-id="' + id + '">' + icon('check') + ' Mark humanized</button>') +
+      '<button class="tbtn" type="button" data-do="state" data-action="reset" data-id="' + id + '" data-confirm="Put the original art back? The current picture stays in history.">Reset</button>';
+  }
+
   async function editorPage(id) {
-    var d = await api.call('sprite', { id: id }), s = d.sprite, lib = d.lib, p = d.progress, art = isArtist();
-    var bytes = await Promise.all([api.png(id, 'current'), api.png(id, 'original')]);
-    var html = '<div id="editor" data-id="' + s.id + '">' +
-      '<div class="crumbs"><a href="#/library/' + lib.id + '">&larr; ' + esc(lib.name) + '</a><span class="navs">' + (d.prev ? '<a class="btn ghost sm" href="#/sprite/' + d.prev + '">&lsaquo; Prev</a>' : '') + (d.next ? '<a class="btn ghost sm" href="#/sprite/' + d.next + '">Next &rsaquo;</a>' : '') + '</span></div>' +
-      title('i-ed', s.name, 'Pen paints one pixel, drag to draw. Eraser clears to transparent (or to the background colour on an opaque sprite). Fill floods the connected area of one exact colour. Keys: B pen, E eraser, G fill, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Y redo. Nothing is stored until you press Save (leaving the page saves for you). To work from a picture, bring in a PNG of exactly ' + s.width + '&times;' + s.height + ' or drop it on the canvas. This slot is ' + s.width + '&times;' + s.height + (s.kind === 'texture' ? ', a texture' + (s.tile ? ' that tiles seamlessly' : '') : '') + '; its size cannot change because the file for it must match.' + (art ? '' : ' Your drawing is saved as the art for this slot, as received; only the artist can sign it off.')) +
+    var d = await api.call('sprite', { id: id }), s = d.sprite, lib = d.lib, art = isArtist();
+    var results = await Promise.all([api.png(id, 'current'), api.png(id, 'original'), api.call('overview'), api.call('library', { id: lib.id })]);
+    var ov = results[2], ld = results[3], sibs = ld.sprites, at = sibs.findIndex(function (x) { return x.id === id; });
+    ov.libraries.forEach(function (l) { if (l.id === lib.id) l.progress = ld.progress; });
+    var p = ld.progress;
+    var html = '<div class="ed" id="editor" data-id="' + s.id + '">' + sideTree(ov, lib.id, sibs, s.id) +
+      '<section class="mid">' +
+      '<div class="crumb"><span class="lab full"><a href="#/library/' + lib.id + '">' + esc(lib.name) + '</a></span><span class="full">/</span><b class="full">' + esc(s.slot) + '</b>' +
+      '<select id="sprpick" aria-label="Sprite in ' + esc(lib.name) + '">' + sibs.map(function (x) { return '<option value="' + x.id + '"' + (x.id === id ? ' selected' : '') + '>' + esc(x.slot) + ' &middot; ' + W[x.state] + '</option>'; }).join('') + '</select>' +
+      chip(s.state, 'statechip') + '<span class="sp"></span><span class="dim num full">' + (at + 1) + ' of ' + sibs.length + '</span>' +
+      '<button class="tbtn sm mobonly" type="button" data-do="insp" title="Details" aria-label="Details">' + icon('dots') + '</button>' +
+      (d.prev ? '<a class="tbtn sm" href="#/sprite/' + d.prev + '" title="Previous ([)">&lsaquo;</a>' : '') + (d.next ? '<a class="tbtn sm" href="#/sprite/' + d.next + '" title="Next (])">&rsaquo;</a>' : '') + '</div>' +
       (d.locked ? '<div class="locked">The artist has taken this slot over, so it can be looked at but no longer changed here.</div>' : '') +
-      '<p class="small"><span class="chip ' + s.state + '" id="statechip">' + W[s.state] + '</span> <span id="changed" class="dim">' + (s.changedPx ? s.changedPx + ' px redrawn' : '') + '</span> <span class="dim">&middot; ' + p.humanized + ' of ' + p.total + ' in the library humanized</span>' + (s.notes ? ' <span class="dim">&middot; ' + esc(s.notes) + '</span>' : '') + '</p>' +
-      '<div class="workbench"><section class="canvaspane" style="position:relative"><div class="toolbar" role="toolbar" aria-label="Tools"><button type="button" class="tool on" data-tool="pen" title="Pen (B)">Pen</button><button type="button" class="tool colbtn" id="colbtn" title="Colour" aria-label="Colour" aria-haspopup="true" aria-expanded="false"><span id="colsw"></span></button><button type="button" class="tool" data-tool="erase" title="Eraser (E)">Erase</button><button type="button" class="tool" data-tool="fill" title="Fill (G)">Fill</button><span class="sep"></span>' +
-      '<button type="button" class="tool plain" id="undo" title="Undo (Ctrl+Z)" disabled>Undo</button><button type="button" class="tool plain" id="redo" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button><span class="sep"></span><button type="button" class="tool plain" id="zoomout" title="Smaller">&minus;</button><button type="button" class="tool plain" id="zoomin" title="Larger">+</button><button type="button" class="tool plain on" id="gridbtn" title="Grid" aria-pressed="true">Grid</button></div>' +
-      '<div class="card colpop" id="colpop" hidden>' + head('i-col', 'Colour', 'Drag round the ring for the hue, inside the square for shade. Or type a hex code. Recent colours and the colours already used in this sprite are below; tap one to pick it up.') + '<div class="wheelwrap"><canvas id="wheel" width="208" height="208" aria-label="Colour wheel"></canvas></div><div class="row colrow"><span id="cur" class="swatch big" aria-label="Current colour"></span><input id="hex" type="text" maxlength="7" value="#1A9C98" spellcheck="false" aria-label="Hex colour"></div><p class="label">Recent</p><div id="recent" class="swatches"></div><p class="label">In this sprite</p><div id="used" class="swatches"></div></div>' +
-      '<div id="stage" class="stage checker"><div class="stack"><canvas id="cv" aria-label="Sprite canvas"></canvas><canvas id="grid" aria-hidden="true"></canvas></div></div><p class="small dim" id="pos">&nbsp;</p>' +
-      '<div class="row savebar"><button type="button" class="btn" id="save" disabled>Save</button>' + (d.next || d.todo ? '<button type="button" class="btn ghost" id="savenext">Save &amp; next</button>' : '') + (d.locked ? '' : '<label class="btn ghost" for="bring">Bring in a PNG</label><input type="file" id="bring" class="infotoggle" accept="image/png">') + '<span id="status" class="small dim" role="status"></span></div></section>' +
-      '<aside class="side">' +
-      '<div class="card"' + (art ? '' : ' style="display:none"') + '>' + head('i-bg', 'Background', 'Transparent sprites show a checkerboard behind them. Opaque ones are fully filled: switching to opaque lays the background colour behind every see-through pixel (undo reverses it), and the eraser then paints the background colour. Switching back makes pixels of exactly that colour transparent again.') +
-      '<div class="seg"><label><input type="radio" name="bg" value="transparent"' + (s.bgMode === 'transparent' ? ' checked' : '') + '> Transparent</label><label><input type="radio" name="bg" value="opaque"' + (s.bgMode === 'opaque' ? ' checked' : '') + '> Opaque</label></div><div class="row"><span id="bgsw" class="swatch"></span><input id="bgcolor" type="text" maxlength="7" value="' + esc(s.bgColor) + '" spellcheck="false" aria-label="Background colour"><button type="button" class="btn ghost sm" id="bguse">Use current</button></div></div>' +
-      '<div class="card">' + head('i-pv', 'Preview', 'The sprite at its true size, enlarged, and beside the original art for comparison.' + (s.tile ? ' Textures are shown tiled three by three.' : '')) + '<div class="previews"><div><p class="label">Actual</p><div class="pvbox checker"><canvas id="pv1"></canvas></div></div><div><p class="label">Larger</p><div class="pvbox checker"><canvas id="pv3"></canvas></div></div><div><p class="label">Original</p><div class="pvbox checker"><canvas id="pvo"></canvas></div></div>' + (s.tile ? '<div><p class="label">Tiled</p><div class="pvbox checker"><canvas id="pvt"></canvas></div></div>' : '') + '</div></div>';
-    if (art) {
-      html += '<div class="card">' + head('i-sign', 'Sign off', 'Humanized means you looked at this sprite and it is yours: nothing sloppy left. It is a deliberate step, so editing a humanized sprite sets it back to redrawn until you sign it off again. Resetting puts the original art back (the redrawn version is kept in history).') +
-        '<div class="row" id="signrow">' + signRow(s.state, s.id) + '</div></div>' +
-        '<div class="card">' + head('i-meta', 'About this slot', 'The slot id is <code>' + esc(s.slot) + '</code> and the file for it is sprites/' + esc(s.slot) + '.png. Notes are written into the schema you export, so whoever fills the library in can read them.') +
-        '<form data-act="meta" data-id="' + s.id + '"><label class="f">Name<input type="text" name="name" value="' + esc(s.name) + '" maxlength="80"></label><div class="grid2"><label class="f">Kind<select name="kind"><option value="sprite"' + (s.kind === 'sprite' ? ' selected' : '') + '>sprite</option><option value="texture"' + (s.kind === 'texture' ? ' selected' : '') + '>texture</option></select></label>' +
-        '<label class="f">Category<input type="text" name="category" value="' + esc(s.category) + '" maxlength="40"></label></div><label class="check f"><input type="checkbox" name="tile" value="1"' + (s.tile ? ' checked' : '') + '> Tiles seamlessly</label><label class="f">Notes<input type="text" name="notes" value="' + esc(s.notes) + '" maxlength="500"></label><button class="btn ghost" type="submit">Save details</button></form>' +
-        '<form class="danger" data-act="delslot" data-id="' + s.id + '"><label class="check f"><input type="checkbox" name="confirm" value="1"> Remove this slot</label><button class="btn warn" type="submit">Remove</button></form></div>';
-    }
-    html += '</aside></div></div>';
+      '<div class="tools" role="toolbar" aria-label="Tools"><button type="button" class="tbtn on" data-tool="pen" title="Pen (B)" aria-label="Pen">' + icon('pen') + '</button>' +
+      '<button type="button" class="tbtn colbtn" id="colbtn" title="Colour" aria-label="Colour" aria-haspopup="true" aria-expanded="false"><span id="colsw"></span></button>' +
+      '<button type="button" class="tbtn" data-tool="erase" title="Eraser (E)" aria-label="Eraser">' + icon('erase') + '</button><button type="button" class="tbtn" data-tool="fill" title="Fill (G)" aria-label="Fill">' + icon('fill') + '</button><i class="sepv"></i>' +
+      '<button type="button" class="tbtn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>' + icon('undo') + '</button><button type="button" class="tbtn" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>' + icon('redo') + '</button><i class="sepv"></i>' +
+      '<button type="button" class="tbtn" id="zoomout" title="Smaller" aria-label="Zoom out">' + icon('minus') + '</button><button type="button" class="tbtn" id="zoomin" title="Larger" aria-label="Zoom in">' + icon('plus') + '</button><button type="button" class="tbtn on" id="gridbtn" title="Grid" aria-label="Grid" aria-pressed="true">' + icon('grid') + '</button><span class="sp"></span>' +
+      (d.locked ? '' : '<label class="tbtn" for="bring" title="Bring in a PNG" aria-label="Bring in a PNG">' + icon('imp') + '</label><input type="file" id="bring" class="infotoggle" accept="image/png">') +
+      (d.next || d.todo ? '<button type="button" class="tbtn" id="savenext" title="Save and open the next sprite">Save &amp; next</button>' : '') + '<button type="button" class="tbtn pri" id="save" disabled>Save</button></div>' +
+      '<div class="card colpop" id="colpop" hidden>' + head('i-col', 'Colour', 'Drag round the ring for the hue, inside the square for shade. Or type a hex code. Recent colours and the colours already used in this sprite are below; tap one to pick it up.') +
+      '<div class="wheelwrap"><canvas id="wheel" width="208" height="208" aria-label="Colour wheel"></canvas></div><div class="colrow"><span id="cur" class="swatch big" aria-label="Current colour"></span><input id="hex" type="text" maxlength="7" value="#1A9C98" spellcheck="false" aria-label="Hex colour"></div>' +
+      '<p class="label">Recent</p><div id="recent" class="swatches"></div><p class="label">In this sprite</p><div id="used" class="swatches"></div></div>' +
+      '<div id="stage" class="stage checker"><div class="stack"><canvas id="cv" aria-label="Sprite canvas"></canvas><canvas id="grid" aria-hidden="true"></canvas></div></div>' +
+      '<div class="statusbar"><span id="pos">&nbsp;</span><span id="changed">' + (s.changedPx ? s.changedPx + ' px redrawn' : '') + '</span><span id="status" role="status"></span><span class="hint">B pen &middot; E erase &middot; G fill &middot; Ctrl+Z undo &middot; [ ] prev/next</span></div></section>' +
+      '<aside class="insp" id="insp">' +
+      '<div class="sec">' + ph('i-pv', 'Preview', '1x &middot; larger &middot; original', 'The sprite at its true size, enlarged, and beside the original art for comparison.' + (s.tile ? ' Textures are shown tiled three by three.' : '')) +
+      '<div class="in"><div class="prevs previews"><div><span class="cap">1x</span><div class="pvbox checker sm"><canvas id="pv1"></canvas></div></div><div><span class="cap">Larger</span><div class="pvbox checker sm"><canvas id="pv3"></canvas></div></div><div><span class="cap">Original</span><div class="pvbox checker sm"><canvas id="pvo"></canvas></div></div>' + (s.tile ? '<div><span class="cap">Tiled</span><div class="pvbox checker sm"><canvas id="pvt"></canvas></div></div>' : '') + '</div></div></div>' +
+      '<div class="sec">' + ph('i-sign', 'State', p.humanized + ' of ' + p.total + ' done', art ? 'Humanized means you looked at this sprite and it is yours: nothing sloppy left. It is a deliberate step, so editing a humanized sprite sets it back to redrawn until you sign it off again. Resetting puts the original art back (the redrawn version is kept in history).' : 'Your drawing is saved as the art for this slot, as received. Only the artist can sign a sprite off as humanized.') +
+      '<div class="in">' + (art ? '<div class="row" id="signrow" style="margin:0">' + signRow(s.state, s.id) + '</div>' : '<span class="small dim">The artist signs sprites off.</span>') + '</div></div>' +
+      '<div class="sec"' + (art ? '' : ' hidden') + '>' + ph('i-bg', 'Background', '', 'Transparent sprites show a checkerboard behind them. Opaque ones are fully filled: switching to opaque lays the background colour behind every see-through pixel (undo reverses it), and the eraser then paints the background colour. Switching back makes pixels of exactly that colour transparent again.') +
+      '<div class="in"><div class="seg"><label><input type="radio" name="bg" value="transparent"' + (s.bgMode === 'transparent' ? ' checked' : '') + '> Transparent</label><label><input type="radio" name="bg" value="opaque"' + (s.bgMode === 'opaque' ? ' checked' : '') + '> Opaque</label></div><div class="row" style="margin:0"><span id="bgsw" class="swatch"></span><input id="bgcolor" type="text" maxlength="7" value="' + esc(s.bgColor) + '" spellcheck="false" aria-label="Background colour"><button type="button" class="tbtn sm" id="bguse">Use current</button></div></div></div>' +
+      '<div class="sec">' + ph('i-meta', 'Slot', '', 'The slot id is <code>' + esc(s.slot) + '</code> and the file for it is sprites/' + esc(s.slot) + '.png. Notes are written into the schema you export, so whoever fills the library in can read them.') + '<div class="in">' +
+      (art ? '<form data-act="meta" data-id="' + s.id + '"><label class="f">Name<input type="text" name="name" value="' + esc(s.name) + '" maxlength="80"></label><div class="grid2"><label class="f">Kind<select name="kind"><option value="sprite"' + (s.kind === 'sprite' ? ' selected' : '') + '>sprite</option><option value="texture"' + (s.kind === 'texture' ? ' selected' : '') + '>texture</option></select></label>' +
+        '<label class="f">Category<input type="text" name="category" value="' + esc(s.category) + '" maxlength="40"></label></div><label class="check f"><input type="checkbox" name="tile" value="1"' + (s.tile ? ' checked' : '') + '> Tiles seamlessly</label><label class="f">Notes<input type="text" name="notes" value="' + esc(s.notes) + '" maxlength="500"></label><button class="tbtn" type="submit">Save details</button></form>' +
+        '<form data-act="delslot" data-id="' + s.id + '" style="margin-top:10px"><label class="check f"><input type="checkbox" name="confirm" value="1"> Remove this slot</label><button class="tbtn warn" type="submit">Remove</button></form>'
+        : '<div class="kv"><span>id</span><span>' + esc(s.slot) + '</span><span>size</span><span>' + s.width + ' &times; ' + s.height + '</span><span>kind</span><span>' + s.kind + (s.tile ? ', tiles' : '') + '</span><span>notes</span><span style="color:var(--mute)">' + esc(s.notes || 'none') + '</span></div>') + '</div></div>' +
+      (art ? '<div class="sec">' + ph('i-hist', 'History', '', 'Every save keeps the picture it replaced, newest first, up to ' + L.KEEP_REVISIONS + '. You can restore any of them; the current art is kept as a version too.') + '<div class="in"><a class="tbtn" href="#/sprite/' + s.id + '/history">Open history</a></div></div>' : '') +
+      '</aside></div>';
     route.after = function () {
       editor = E.mount({
-        sprite: { width: s.width, height: s.height, bgMode: s.bgMode, bgColor: s.bgColor, png: bytes[0], originalPng: bytes[1] },
+        sprite: { width: s.width, height: s.height, bgMode: s.bgMode, bgColor: s.bgColor, png: results[0], originalPng: results[1] },
         readOnly: d.locked,
         onSave: function (r) {
           return api.call('saveArt', { id: s.id, png: O.b64enc(r.png), changedPx: r.changedPx, blank: r.blank, edited: r.edited, bgMode: r.bgMode, bgColor: r.bgColor }).then(function (res) { var row = $('#signrow'); if (row) row.innerHTML = signRow(res.state, s.id); return res; });
@@ -160,22 +232,20 @@
         onNext: function () { var t = d.todo || d.next; go(t ? '#/sprite/' + t : '#/library/' + lib.id); }
       });
       window.__skipture = editor;
+      route.keys = function (e) {
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || '') || e.ctrlKey || e.metaKey) return;
+        if (e.key === '[' && d.prev) go('#/sprite/' + d.prev); else if (e.key === ']' && d.next) go('#/sprite/' + d.next);
+      };
     };
     return html;
   }
 
-  /** the sign-off buttons for a sprite in this state (redrawn in place after a save, so the page never offers a stale choice) */
-  function signRow(state, id) {
-    return (state === 'humanized' ? '<button class="btn ghost" type="button" data-do="state" data-action="unhumanize" data-id="' + id + '">Undo sign-off</button>' : state === 'empty' ? '<span class="small dim">Draw something first, or bring in a picture.</span>' : '<button class="btn good" type="button" data-do="state" data-action="humanize" data-id="' + id + '">Mark humanized</button>') +
-      '<button class="btn ghost" type="button" data-do="state" data-action="reset" data-id="' + id + '" data-confirm="Put the original art back? The current picture stays in history.">Reset to original</button><a class="btn ghost" href="#/sprite/' + id + '/history">History</a>';
-  }
-
   async function historyPage(id) {
     var d = await api.call('history', { id: id }), s = d.sprite;
-    return title('i-hist', s.name + ': earlier versions', 'Every save keeps the picture it replaced, newest first, up to ' + L.KEEP_REVISIONS + '. Restoring one keeps the current art as a version too, so nothing is lost either way.') +
-      '<p><a class="btn ghost" href="#/sprite/' + id + '">Back to the editor</a></p><div class="grid">' + (d.revisions.length ? d.revisions.map(function (r) {
-        return '<div class="tile"><span class="thumb' + (s.bgMode === 'transparent' ? ' checker' : '') + '"><img class="px' + (s.width > 96 || s.height > 96 ? ' big' : '') + '" data-sid="' + id + '" data-which="rev:' + r.id + '"' + (r.png ? ' src="' + blobUrl(O.b64dec(r.png)) + '"' : ' src="' + BLANK + '" data-lazy="1"') + ' width="' + s.width * scaleFor(s.width, s.height) + '" height="' + s.height * scaleFor(s.width, s.height) + '" alt=""></span><span class="meta"><span class="chip ' + r.state + '">' + W[r.state] + '</span></span><span class="name">' + when(r.createdAt) + '</span><span class="dim">' + esc(r.note) + '</span><button class="btn ghost" type="button" data-do="restore" data-id="' + id + '" data-rev="' + r.id + '">Restore</button></div>';
-      }).join('') : '<p class="muted">No earlier versions yet.</p>') + '</div>';
+    return '<div class="content" style="max-width:1000px">' + pagehead('i-hist', s.name + ': earlier versions', 'Every save keeps the picture it replaced, newest first, up to ' + L.KEEP_REVISIONS + '. Restoring one keeps the current art as a version too, so nothing is lost either way.') +
+      '<p><a class="tbtn" href="#/sprite/' + id + '">&lsaquo; Back to the editor</a></p><div class="grid" style="grid-template-columns:repeat(auto-fill,120px)">' + (d.revisions.length ? d.revisions.map(function (r) {
+        return '<div class="t" style="width:120px"><span class="th checker sm"><img class="px" data-sid="' + id + '" data-which="rev:' + r.id + '"' + (r.png ? ' src="' + blobUrl(O.b64dec(r.png)) + '"' : ' src="' + BLANK + '" data-lazy="1"') + ' alt=""></span><div style="padding:4px 2px;font-size:11px">' + chip(r.state) + '<div class="dim">' + esc(when(r.createdAt)) + '</div><div class="dim">' + esc(r.note) + '</div></div><button class="tbtn sm" type="button" data-do="restore" data-id="' + id + '" data-rev="' + r.id + '">Restore</button></div>';
+      }).join('') : '<p class="muted">No earlier versions yet.</p>') + '</div></div>';
   }
 
   // ---------------- import ----------------
@@ -184,7 +254,7 @@
       { slot: 'example-texture', name: 'Example texture', kind: 'texture', width: 32, height: 32, tile: true, background: 'opaque', background_color: '#336633', category: 'ground', notes: 'Opaque slots need a background colour.' }] };
 
   function importPage(report, error) {
-    var html = title('i-import', 'Import', 'Bring art or a whole library into this room. <strong>Import a library</strong> takes a zip (a schema.json and sprites/&lt;slot&gt;.png for each slot) or just a schema.json. If its library id matches one here, new art goes only into slots that are empty or still as received; anything the artist redrew or signed off is kept. A zip for a new library creates it. ' +
+    var html = pagehead('i-import', 'Import', 'Bring art or a whole library into this room. <strong>Import a library</strong> takes a zip (a schema.json and sprites/&lt;slot&gt;.png for each slot) or just a schema.json. If its library id matches one here, new art goes only into slots that are empty or still as received; anything the artist redrew or signed off is kept. A zip for a new library creates it. ' +
       '<strong>Blank schema</strong> is an empty template to describe a library in a text editor. <strong>Build manually</strong> starts an empty library you fill slot by slot. Everything on this page is open to guests and artists alike.');
     if (error) html += '<div class="error">' + esc(error) + '</div>';
     if (report) {
@@ -196,45 +266,63 @@
     html += '<div class="card">' + head('i-drop', 'Import a library', 'A zip can hold up to 16 MB. Slots must match the sizes in the schema exactly. A schema.json on its own makes the library with every slot waiting for art.') +
       '<div class="dropbox" id="drop"><p class="big">Drop a zip or schema.json here</p><input type="file" id="zipfile" accept=".zip,.json,application/zip,application/json"><p class="small muted">or choose a file</p></div></div>';
     html += '<div class="cols"><div class="card">' + head('i-blank', 'Blank schema', 'A JSON file describing a library: its name and one entry per slot, with width, height, kind, background and notes. Fill it in, then import it here to make the library with empty slots, or send it to someone who will draw the art.') +
-      '<p class="small">A template to describe a library in a text editor.</p><button class="btn" type="button" data-do="template">Download blank schema</button></div>' +
+      '<p class="small">A template to describe a library in a text editor.</p><div class="row"><button class="btn" type="button" data-do="template">Download blank schema</button></div></div>' +
       '<div class="card">' + head('i-manual', 'Build a library manually', 'Starts an empty library. Open it afterwards to add slots one by one, then bring art in or draw it.') +
       '<form data-act="newlib"><label class="f">Name<input type="text" name="name" required maxlength="80"></label><label class="f">App<input type="text" name="app" maxlength="60" placeholder="Alberich"></label><label class="f">Description<input type="text" name="description" maxlength="500"></label><button class="btn" type="submit">Create library</button></form></div></div>';
     return html;
   }
 
-  // ---------------- the artist's libraries page ----------------
+  // ---------------- libraries: the ledger (artist) ----------------
   async function librariesPage() {
-    var ov = await api.call('overview'), libs = await Promise.all(ov.libraries.map(function (l) { return api.call('library', { id: l.id }); }));
-    var html = title('i-libs', 'Libraries', 'Manage everything in the room. Tick sprites or whole libraries, then use the bar at the top to change or delete them together. Only the fields you fill in are changed; blank ones are left alone. <strong>Export library</strong> makes a zip of the art as it stands (complete only when every sprite is humanized); <strong>Export schema</strong> makes a zip of empty slots to send to whoever will fill them. Deleting cannot be undone.');
-    html += '<div class="bulkbar" id="bulk"><p class="count" id="bulkcount">Nothing selected</p><details><summary>Change or delete the selected</summary>' +
-      '<form data-act="bulk-sprites"><span class="tag">Selected sprites</span><label class="f">Kind<select name="kind"><option value="">no change</option><option value="sprite">sprite</option><option value="texture">texture</option></select></label>' +
-      '<label class="f">Tiles<select name="tile"><option value="">no change</option><option value="yes">tiles</option><option value="no">does not tile</option></select></label>' +
-      '<label class="f">Background<select name="bgMode"><option value="">no change</option><option value="transparent">transparent</option><option value="opaque">opaque</option></select></label>' +
-      '<label class="f">Category<input type="text" name="category" maxlength="40" placeholder="no change"></label><label class="f">Notes<input type="text" name="notes" maxlength="500" placeholder="no change"></label>' +
-      '<button class="btn sm" type="submit">Apply</button><button class="btn warn sm" type="button" data-do="bulk-del-sprites">Delete sprites</button></form>' +
-      '<form data-act="bulk-libs"><span class="tag">Selected libraries</span><label class="f">App<input type="text" name="app" maxlength="60" placeholder="no change"></label><label class="f">Description<input type="text" name="description" maxlength="500" placeholder="no change"></label>' +
-      '<button class="btn sm" type="submit">Apply</button><button class="btn warn sm" type="button" data-do="bulk-del-libs">Delete libraries</button></form></details></div>';
-    html += '<div class="libmgr">';
-    libs.forEach(function (d) {
-      var lib = d.lib;
-      html += '<div class="card"><div class="libhead"><input type="checkbox" class="sellib" data-id="' + lib.id + '" aria-label="Select ' + esc(lib.name) + '"><h3><a href="#/library/' + lib.id + '">' + esc(lib.name) + '</a></h3><span class="pill">' + esc(lib.app || 'No app') + '</span><span class="pct">' + d.progress.pct + '%</span></div>' +
-        bar(d.progress) + '<p class="small">' + d.progress.humanized + ' of ' + d.progress.total + ' humanized &middot; id <code>' + esc(lib.slug) + '</code></p>' +
-        '<div class="row"><button class="btn sm" type="button" data-do="export" data-purpose="library" data-id="' + lib.id + '">' + (d.progress.complete ? 'Export library' : 'Export partial') + '</button><button class="btn ghost sm" type="button" data-do="export" data-purpose="schema" data-id="' + lib.id + '">Export schema</button></div>' +
-        '<details><summary>Details</summary><form data-act="editlib" data-id="' + lib.id + '"><div class="grid2"><label class="f">Name<input type="text" name="name" value="' + esc(lib.name) + '" required maxlength="80"></label><label class="f">App<input type="text" name="app" value="' + esc(lib.app) + '" maxlength="60"></label></div>' +
-        '<label class="f">Description<input type="text" name="description" value="' + esc(lib.description) + '" maxlength="500"></label><button class="btn ghost sm" type="submit">Save details</button></form></details>' +
-        '<details><summary>Sprites (' + d.sprites.length + ')</summary><div class="tscroll"><table class="sprites"><thead><tr><th><input type="checkbox" class="selall" data-lib="' + lib.id + '" aria-label="Select all in ' + esc(lib.name) + '"></th><th>Sprite</th><th>Slot</th><th>Size</th><th>Kind</th><th>Category</th><th>State</th></tr></thead><tbody>' +
-        d.sprites.map(function (s) {
-          return '<tr><td><input type="checkbox" class="selspr" data-id="' + s.id + '" data-lib="' + lib.id + '" aria-label="Select ' + esc(s.name) + '"></td><td><a href="#/sprite/' + s.id + '">' + esc(s.name) + '</a></td><td><code>' + esc(s.slot) + '</code></td><td>' + s.width + '&times;' + s.height + '</td><td>' + s.kind + (s.tile ? ', tiles' : '') + '</td><td>' + esc(s.category) + '</td><td><span class="chip ' + s.state + '">' + W[s.state] + '</span></td></tr>';
-        }).join('') + '</tbody></table></div></details></div>';
+    var d = await loadRoom();
+    ledger = { rows: {}, order: [], cur: 0 };
+    var html = '<div class="ledger"><div class="main"><div class="bulk" id="bulk"><div class="line"><span class="cnt" id="bulkcount">Nothing selected</span><button class="tbtn moreb" type="button" data-do="bulk-more">Edit &#9662;</button>' +
+      '<label class="infobtn" for="i-libs" aria-label="More about this" style="margin-left:auto">i</label></div>' +
+      '<form data-act="bulk-sprites" class="line fields"><span class="tag">Sprites</span><select name="kind" aria-label="Kind"><option value="">kind</option><option value="sprite">sprite</option><option value="texture">texture</option></select>' +
+      '<select name="tile" aria-label="Tiles"><option value="">tiles</option><option value="yes">tiles</option><option value="no">does not tile</option></select><select name="bgMode" aria-label="Background"><option value="">background</option><option value="transparent">transparent</option><option value="opaque">opaque</option></select>' +
+      '<input type="text" name="category" maxlength="40" placeholder="category" aria-label="Category"><input type="text" name="notes" maxlength="500" placeholder="notes" aria-label="Notes">' +
+      '<button class="tbtn pri" type="submit">Apply</button><button class="tbtn warn" type="button" data-do="bulk-del-sprites">Delete sprites</button></form>' +
+      '<form data-act="bulk-libs" class="line fields"><span class="tag">Libraries</span><input type="text" name="app" maxlength="60" placeholder="app" aria-label="App"><input type="text" name="description" maxlength="500" placeholder="description" aria-label="Description">' +
+      '<button class="tbtn pri" type="submit">Apply</button><button class="tbtn warn" type="button" data-do="bulk-del-libs">Delete libraries</button></form></div>' +
+      '<input type="checkbox" id="i-libs" class="infotoggle"><div class="callout top" style="margin:10px">Manage everything in the room. Tick sprites or libraries, then use the bar at the top to change or delete them together. Only the fields you fill in are changed; blank ones are left alone. <strong>Export</strong> makes a zip of the art as it stands (complete only when every sprite is humanized); <strong>Schema</strong> makes a zip of empty slots to send to whoever will fill them. Click a row to peek at it; keys: J and K move, X ticks, Enter opens the editor, H marks humanized. Deleting cannot be undone.</div>' +
+      '<div class="tbl"><table class="sprites libmgr"><thead><tr><th class="c"><input type="checkbox" class="selall" aria-label="Select every sprite"></th><th></th><th>Name</th><th class="hide-m">Slot</th><th class="hide-m">Size</th><th class="hide-m">Kind</th><th class="hide-m">Category</th><th class="hide-m">Background</th><th>State</th><th class="hide-m">Changed</th></tr></thead>';
+    d.libs.forEach(function (x) {
+      var l = x.lib, p = x.progress;
+      html += '<tbody data-lib="' + l.id + '"><tr class="grp"><td colspan="10"><div class="gl"><input type="checkbox" class="sellib" data-id="' + l.id + '" aria-label="Select ' + esc(l.name) + '"><button class="tog" type="button" data-do="grp-toggle" aria-label="Fold or unfold">&#9662;</button><a href="#/library/' + l.id + '">' + esc(l.name) + '</a>' + bar(p) +
+        '<i class="m num">' + p.humanized + ' of ' + p.total + ' &middot; ' + p.pct + '%</i><span class="pill">' + esc(l.app || 'No app') + '</span><span class="sp"></span>' +
+        '<button class="tbtn sm hide-m" type="button" data-do="export" data-purpose="library" data-id="' + l.id + '">' + (p.complete ? 'Export' : 'Export partial') + '</button><button class="tbtn sm hide-m" type="button" data-do="export" data-purpose="schema" data-id="' + l.id + '">Schema</button><button class="tbtn sm" type="button" data-do="rename">Edit</button></div></td></tr>' +
+        '<tr class="editrow" hidden><td colspan="10"><form data-act="editlib" data-id="' + l.id + '"><label class="f">Name<input type="text" name="name" value="' + esc(l.name) + '" required maxlength="80"></label><label class="f">App<input type="text" name="app" value="' + esc(l.app) + '" maxlength="60"></label>' +
+        '<label class="f">Description<input type="text" name="description" value="' + esc(l.description) + '" maxlength="500"></label><button class="tbtn pri" type="submit">Save</button><button class="tbtn sm hide-m" type="button" data-do="export" data-purpose="library" data-id="' + l.id + '">Export</button><button class="tbtn sm hide-m" type="button" data-do="export" data-purpose="schema" data-id="' + l.id + '">Schema</button></form></td></tr>';
+      x.sprites.forEach(function (s) {
+        ledger.rows[s.id] = { s: s, lib: l }; ledger.order.push(s.id);
+        html += '<tr class="lr" data-id="' + s.id + '"><td class="c"><input type="checkbox" class="selspr" data-id="' + s.id + '" data-lib="' + l.id + '" aria-label="Select ' + esc(s.name) + '"></td><td>' + img(s.id, s.png, '') + '</td><td>' + esc(s.name) + '<span class="mu small" style="color:var(--mute2);margin-left:6px">' + esc(s.slot) + '</span></td>' +
+          '<td class="mu hide-m"><code>' + esc(s.slot) + '</code></td><td class="mu num hide-m">' + s.width + '&times;' + s.height + '</td><td class="mu hide-m">' + s.kind + (s.tile ? ', tiles' : '') + '</td><td class="mu hide-m">' + esc(s.category) + '</td><td class="mu hide-m">' + s.bgMode + '</td><td>' + chip(s.state) + '</td><td class="mu num hide-m">' + esc(when(s.updatedAt)) + '</td></tr>';
+      });
+      html += '</tbody>';
     });
-    if (!libs.length) html += '<div class="card"><h3>No libraries</h3><p>Nothing to manage yet.</p><div class="row"><a class="btn" href="#/import">Import or build a library</a></div></div>';
-    html += '</div>';
-    html += '<div class="card">' + head('i-room', api.demo ? 'The demo room' : 'This room', api.demo ? 'The demo lives in this tab only. Resetting it puts back the made-up libraries.' : 'Deleting the room removes every library, sprite and version in it for everyone, and frees its key. Guests lose access at once. It cannot be undone.') +
-      (api.demo ? '<button class="btn ghost" type="button" data-do="reset-demo">Reset the demo</button>' : '<form data-act="destroy"><label class="f">Type <code>DELETE</code> to delete this room<input type="text" name="confirm" autocomplete="off"></label><button class="btn warn" type="submit">Delete the room</button></form>') + '</div>';
+    html += '</table>' + (d.libs.length ? '' : '<div class="card" style="margin:14px">' + head('i-nolib', 'No libraries') + '<p>Nothing to manage yet.</p><div class="row"><a class="btn" href="#/import">Import or build a library</a></div></div>') +
+      '<div class="card roomcard">' + head('i-room', api.demo ? 'The demo room' : 'This room', api.demo ? 'The demo lives in this tab only. Resetting it puts back the made-up libraries.' : 'Deleting the room removes every library, sprite and version in it for everyone, and frees its key. Guests lose access at once. It cannot be undone.') +
+      (api.demo ? '<div class="row"><button class="btn ghost" type="button" data-do="reset-demo">Reset the demo</button></div>' : '<form data-act="destroy"><label class="f">Type <code>DELETE</code> to delete this room<input type="text" name="confirm" autocomplete="off"></label><button class="btn warn" type="submit">Delete the room</button></form>') + '</div></div></div>' +
+      '<aside class="peek" id="peek"><div class="panelh"><span>Peek</span><span class="r"><span id="peekname"></span><button class="tbtn sm mobonly" type="button" data-do="peek-close" aria-label="Close">x</button></span></div><div class="in" id="peekin"><span class="small dim">Click a row to see it here.</span></div></aside></div>';
     return html;
   }
 
-  function missing(msg) { return title('i-gone', 'Not found') + '<div class="card"><p>' + esc(msg) + '</p><div class="row"><a class="btn" href="#/">Back to the dashboard</a></div></div>'; }
+  function peekFor(id) {
+    var r = ledger.rows[id]; if (!r) return;
+    var s = r.s;
+    $('#peekname').textContent = s.slot;
+    $('#peekin').innerHTML = '<div class="big checker sm">' + img(s.id, s.png, s.name) + '</div><div><div style="font:700 11px var(--px);letter-spacing:.04em;margin-bottom:4px">' + esc(s.name) + '</div>' + chip(s.state) + ' <span class="small dim">' + esc(r.lib.name) + ' &middot; ' + s.width + '&times;' + s.height + '</span></div>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;min-width:150px"><a class="tbtn pri" href="#/sprite/' + s.id + '">' + icon('pen') + ' Open in editor</a>' +
+      (s.state === 'humanized' ? '<button class="tbtn" type="button" data-do="state" data-action="unhumanize" data-id="' + s.id + '">Undo sign-off</button>' : s.state === 'empty' ? '' : '<button class="tbtn good" type="button" data-do="state" data-action="humanize" data-id="' + s.id + '">' + icon('check') + ' Mark humanized</button>') + '</div>' +
+      '<div class="lab k" style="margin-top:4px">Shortcuts</div><div class="keys"><span class="kbd">J K</span><span>next or previous row</span><span class="kbd">X</span><span>tick the row</span><span class="kbd">Enter</span><span>open in editor</span><span class="kbd">H</span><span>mark humanized</span></div>';
+    hydrate();
+    $('#peek').classList.add('on');
+    $$('tr.lr.cur').forEach(function (t) { t.classList.remove('cur'); });
+    var row = $('tr.lr[data-id="' + id + '"]'); if (row) { row.classList.add('cur'); row.scrollIntoView({ block: 'nearest' }); }
+    ledger.cur = id;
+  }
+
+  function missing(msg) { return '<div class="content">' + pagehead('i-gone', 'Not found') + '<div class="card">' + head('i-nf', 'Nothing here') + '<p>' + esc(msg) + '</p><div class="row"><a class="btn" href="#/">Back to the dashboard</a></div></div></div>'; }
 
   // ---------------- routing ----------------
   function parse() {
@@ -251,12 +339,11 @@
   }
 
   function shell(page) {
-    var items = [['Dashboard', '#/', 'dash'], ['Import', '#/import', 'import']];
-    if (isArtist()) items.push(['Libraries', '#/libraries', 'libraries']);
-    var links = items.map(function (i) { return '<a href="' + i[1] + '"' + (i[2] === page ? ' aria-current="page"' : '') + '>' + i[0] + '</a>'; }).join('');
-    topnav.innerHTML = links + '<button type="button" class="leave" data-do="leave">Leave</button>';
-    tabbar.innerHTML = links + '<button type="button" class="leave" data-do="leave">Leave</button>';
-    who.innerHTML = '<span class="pill ' + (api.demo ? 'demo' : isArtist() ? 'artist' : '') + '">' + (api.demo ? 'Demo' : isArtist() ? 'Artist' : 'Guest') + '</span>';
+    var items = [['Dashboard', '#/', 'dash', 'dash'], ['Import', '#/import', 'import', 'imp']];
+    if (isArtist()) items.push(['Libraries', '#/libraries', 'libraries', 'folder']);
+    topnav.innerHTML = items.map(function (i) { return '<a href="' + i[1] + '"' + (i[2] === page ? ' aria-current="page"' : '') + '>' + i[0] + '</a>'; }).join('');
+    tabbar.innerHTML = items.map(function (i) { return '<a href="' + i[1] + '"' + (i[2] === page ? ' aria-current="page"' : '') + '>' + icon(i[3]) + i[0] + '</a>'; }).join('');
+    who.innerHTML = '<span class="pill ' + (api.demo ? 'demo' : isArtist() ? 'artist' : '') + '">' + (api.demo ? 'Demo' : isArtist() ? 'Artist' : 'Guest') + '</span><button type="button" class="leave" data-do="leave">Leave</button>';
   }
 
   async function render(extra) {
@@ -264,19 +351,19 @@
       if (editor.dirty()) await editor.save();
       editor.destroy(); editor = null; window.__skipture = null;
     }
-    freeUrls(); route.after = null;
+    freeUrls(); route.after = null; route.keys = null; ledger = null;
     var r = parse(), p = r.parts, html, page = p[0] || 'dash', id = parseInt(p[1], 10);
     document.body.classList.toggle('gate', !api);
     if (!api) { who.innerHTML = ''; topnav.innerHTML = ''; tabbar.innerHTML = ''; main.className = 'wrap'; main.innerHTML = gatePage(); document.title = 'Skipture'; return; }
-    if (page === 'library' && id) html = await libraryPage(id, r.q);
+    var plain = false;
+    if (page === 'library' && id) html = await browsePage(id);
     else if (page === 'sprite' && id && p[2] === 'history') html = isArtist() ? await historyPage(id) : missing('Only the artist can see a sprite\'s history.');
     else if (page === 'sprite' && id) html = await editorPage(id);
-    else if (page === 'import') html = importPage(extra && extra.report, extra && extra.error);
+    else if (page === 'import') { html = importPage(extra && extra.report, extra && extra.error); plain = true; }
     else if (page === 'libraries') html = isArtist() ? await librariesPage() : missing('Only the artist can manage libraries.');
-    else if (page === 'dash') html = await dashboard();
+    else if (page === 'dash') html = await browsePage(0);
     else html = missing('There is no such page.');
-    var editing = page === 'sprite' && !p[2];
-    main.className = 'wrap' + (editing ? ' wide' : '');
+    main.className = 'wrap' + (plain ? ' plain' : '');
     main.innerHTML = html;
     shell(page === 'library' || page === 'sprite' ? 'dash' : page);
     document.title = 'Skipture';
@@ -310,6 +397,7 @@
   function selected() { return { sprites: $$('.selspr:checked').map(function (c) { return +c.dataset.id; }), libs: $$('.sellib:checked').map(function (c) { return +c.dataset.id; }) }; }
   function updateBulk() {
     var s = selected(), el = $('#bulkcount');
+    $$('tr.lr').forEach(function (t) { t.classList.toggle('sel', !!$('.selspr:checked', t)); });
     if (el) el.textContent = !s.sprites.length && !s.libs.length ? 'Nothing selected' : s.sprites.length + ' sprite' + (s.sprites.length === 1 ? '' : 's') + ', ' + s.libs.length + ' librar' + (s.libs.length === 1 ? 'y' : 'ies') + ' selected';
   }
 
@@ -361,13 +449,20 @@
   var doing = {
     leave: async function () { api = null; A.leave(); makeRoom = null; go('#/'); },
     back: async function () { makeRoom = null; route(); },
+    insp: async function () { var e = $('#editor'); if (e) e.classList.toggle('sheet'); },
     template: async function () { download(new TextEncoder().encode(JSON.stringify(TEMPLATE, null, 2) + '\n'), 'blank-schema.json', 'application/json'); },
     'export': async function (el) { var r = await api.exportZip(+el.dataset.id, el.dataset.purpose); download(r.data, r.name); route(); },
     state: async function (el) {
       if (el.dataset.confirm && !window.confirm(el.dataset.confirm)) return;
-      await api.call('setState', { id: +el.dataset.id, action: el.dataset.action }); route();
+      var keep = ledger ? ledger.cur : 0;
+      await api.call('setState', { id: +el.dataset.id, action: el.dataset.action });
+      await route(); if (keep && $('#peek')) peekFor(keep);
     },
     restore: async function (el) { await api.call('restore', { id: +el.dataset.id, revision: +el.dataset.rev }); go('#/sprite/' + el.dataset.id); },
+    rename: async function (el) { var tb = el.closest('tbody'), row = $('.editrow', tb); row.hidden = !row.hidden; },
+    'grp-toggle': async function (el) { el.closest('tbody').classList.toggle('col'); },
+    'bulk-more': async function () { $('#bulk').classList.toggle('open'); },
+    'peek-close': async function () { $('#peek').classList.remove('on'); },
     'bulk-del-sprites': async function () {
       var s = selected().sprites; if (!s.length) throw new Error('Tick some sprites first.');
       if (!window.confirm('Delete ' + s.length + ' sprite' + (s.length === 1 ? '' : 's') + '? This cannot be undone.')) return;
@@ -391,14 +486,31 @@
   });
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('[data-do]');
-    if (!el) return;
-    e.preventDefault();
-    doing[el.dataset.do](el).catch(fail);
+    if (el) { e.preventDefault(); doing[el.dataset.do](el).catch(fail); return; }
+    var fl = e.target.closest && e.target.closest('.f1[data-filter]');
+    if (fl) { $$('.f1').forEach(function (b) { b.classList.toggle('on', b === fl); }); $('#content').dataset.f = fl.dataset.filter; return; }
+    var row = e.target.closest && e.target.closest('tr.lr');
+    if (row && ledger && !e.target.closest('input,a,button')) peekFor(+row.dataset.id);
   });
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (t.classList.contains('selall')) { $$('.selspr[data-lib="' + t.dataset.lib + '"]').forEach(function (c) { c.checked = t.checked; }); }
+    if (t.id === 'sprpick') return go('#/sprite/' + t.value);
+    if (t.classList.contains('selall')) $$('.selspr').forEach(function (c) { c.checked = t.checked; });
     if (t.classList.contains('selall') || t.classList.contains('selspr') || t.classList.contains('sellib')) updateBulk();
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'tilefind') return;
+    var q = e.target.value.trim().toLowerCase();
+    $$('.t[data-name]').forEach(function (t) { t.classList.toggle('nomatch', !!q && t.dataset.name.indexOf(q) < 0); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (route.keys) route.keys(e);
+    if (!ledger || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || '') || e.ctrlKey || e.metaKey) return;
+    var i = ledger.order.indexOf(ledger.cur), k = e.key.toLowerCase();
+    if (k === 'j' || k === 'k') { e.preventDefault(); var n = ledger.order[Math.max(0, Math.min(ledger.order.length - 1, i < 0 ? 0 : i + (k === 'j' ? 1 : -1)))]; if (n) peekFor(n); }
+    else if (k === 'x' && ledger.cur) { var c = $('.selspr[data-id="' + ledger.cur + '"]'); if (c) { c.checked = !c.checked; updateBulk(); } }
+    else if (e.key === 'Enter' && ledger.cur) go('#/sprite/' + ledger.cur);
+    else if (k === 'h' && ledger.cur && ledger.rows[ledger.cur].s.state !== 'empty') { var r = ledger.rows[ledger.cur].s; doing.state({ dataset: { id: r.id, action: r.state === 'humanized' ? 'unhumanize' : 'humanize' } }).catch(fail); }
   });
   window.addEventListener('hashchange', function () { route(); });
 

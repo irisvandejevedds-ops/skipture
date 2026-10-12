@@ -26,7 +26,7 @@ COMMON = r"""
   function say(ok, msg) { out.push((ok ? 'PASS ' : 'FAIL ') + msg); var p = document.getElementById('report'); if (p) p.textContent = out.join('\n'); }
   function $(s, r) { return (r || document).querySelector(s); } function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-  async function until(fn, what, n) { for (var i = 0; i < (n || 160); i++) { var v = await fn(); if (v) return v; await sleep(50); } say(false, 'timed out waiting for ' + what); throw new Error(what); }
+  async function until(fn, what, n) { for (var i = 0; i < (n || 160); i++) { var v = await fn(); if (v) return v; await sleep(50); } say(false, 'timed out waiting for ' + what + ' [flash: ' + (($('#flash') || {}).textContent || '') + '; count: ' + (($('#bulkcount') || {}).textContent || '') + '; cats: ' + $$('table.sprites tr.lr td:nth-child(7)').slice(0, 4).map(function (x) { return x.textContent; }).join('|') + ']'); throw new Error(what); }
   function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); }
   function submit(f) { f.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }
   function setv(sel, v) { var e = $(sel); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); }
@@ -47,17 +47,21 @@ DEMO = r"""
     await enterRoom('DEMO');
     await until(function () { return $('.stats'); }, 'the dashboard');
     say(await pill() === 'Demo', 'DEMO opens the demo room, marked as such');
-    var nums = $$('.bignum').map(function (b) { return b.textContent.replace(/\s+/g, ' '); });
-    say(/13 of 15/.test(nums[0]) && /5 of 15 . 33%/.test(nums[1]), 'dashboard counts submitted (' + nums[0] + ') and humanized (' + nums[1] + ')');
-    say($$('.libcard').length === 3, 'three libraries, each with progress');
-    await until(function () { return $$('.libcard img').every(function (i) { return i.complete && i.naturalWidth > 1; }); }, 'thumbnails');
-    say($$('.libcard img').length === 3, 'each library shows a representative sprite');
+    var nums = $$('.stats .bignum').map(function (b) { return b.textContent.replace(/\s+/g, ' '); });
+    say(/13\s*of\s*15/.test(nums[0]) && /^5\s*33%/.test(nums[1]), 'dashboard counts submitted (' + nums[0] + ') and humanized (' + nums[1] + ')');
+    say($$('.lh').length === 3 && $$('.lh .hbar').length === 3, 'three libraries, each with a progress bar');
+    await until(function () { return $$('.t img').length === 15 && $$('.t img').every(function (i) { return i.complete && i.naturalWidth > 1; }); }, 'thumbnails');
+    say($$('.t').length === 15, 'every sprite in the room is a tile with its picture');
+    say($$('.side .lib').length === 4, 'the left tree lists the room and its three libraries');
+    click($$('.f1').filter(function (b) { return /humanized/i.test(b.textContent); })[0]);
+    say($$('.t').filter(function (t) { return t.offsetParent; }).length === 5, 'the humanized filter shows only the five signed-off sprites');
+    click($$('.f1')[0]);
     say($$('#topnav a').map(function (a) { return a.textContent; }).join() === 'Dashboard,Import,Libraries', 'the artist menu has Dashboard, Import and Libraries');
 
-    click($$('.libcard').filter(function (a) { return /Pocket Frogs/.test(a.textContent); })[0]);
-    await until(function () { return $$('.tile').length === 6; }, 'the library');
+    click($$('.lh a').filter(function (a) { return /Pocket Frogs/.test(a.textContent); })[0]);
+    await until(function () { return $$('.t').length === 6; }, 'the library');
     say(true, 'a library lists its six sprites');
-    click($$('.tile').filter(function (t) { return /Frog$/.test($('.name', t).textContent) && /waiting/.test(t.textContent); })[0]);
+    click($('.t.s-empty'));
     var ed = await editorReady(), d = ed.test.doc, W = d.w, H = d.h;
     say(W === 16 && H === 16, 'the pixel editor opened on the sprite');
     // the colour pop-out
@@ -101,8 +105,8 @@ DEMO = r"""
 
     location.hash = '#/';
     await until(function () { return $('.stats'); }, 'the dashboard again');
-    var n2 = $$('.bignum').map(function (b) { return b.textContent.replace(/\s+/g, ' '); });
-    say(/14 of 15/.test(n2[0]) && /6 of 15/.test(n2[1]), 'the dashboard now says ' + n2[0] + ' / ' + n2[1]);
+    var n2 = $$('.stats .bignum').map(function (b) { return b.textContent.replace(/\s+/g, ' '); });
+    say(/14\s*of\s*15/.test(n2[0]) && /^6\s*40%/.test(n2[1]), 'the dashboard now says ' + n2[0] + ' / ' + n2[1]);
 
     location.hash = '#/libraries';
     await until(function () { return $('.libmgr'); }, 'the libraries page');
@@ -195,7 +199,7 @@ ROOM = r"""
     say($('#statechip').textContent === 'as received', 'a guest\'s drawing is saved as received');
     location.hash = '#/';
     await until(function () { return $('.stats'); }, 'guest dashboard');
-    say(/1 of 1/.test($$('.bignum')[0].textContent), 'the dashboard counts it as submitted');
+    say(/1\s*of\s*1/.test($$('.stats .bignum')[0].textContent), 'the dashboard counts it as submitted');
     click($('[data-do=leave]'));
 
     // a wrong passphrase, then the artist signs it off
@@ -254,8 +258,8 @@ SHOT = "(function () {" + COMMON + r"""
       if (want === 'demo') return;
       if (want === 'libraries') location.hash = '#/libraries';
       else if (want === 'import') location.hash = '#/import';
-      else if (want === 'library') click($('.libcard'));
-      else if (want === 'editor' || want === 'colour') { click($('.libcard')); await until(function () { return $('.tile'); }, 'tiles'); click($('.tile')); await editorReady(); if (want === 'colour') click($('#colbtn')); }
+      else if (want === 'library') click($('.lh a'));
+      else if (want === 'editor' || want === 'colour') { click($('.lh a')); await until(function () { return $('.t'); }, 'tiles'); click($('.t')); await editorReady(); if (want === 'colour') click($('#colbtn')); }
       await sleep(600);
       if (want === 'libraries') $$('details').forEach(function (d) { d.open = true; });
     } catch (e) { document.title = 'FAILED ' + e.message; }
