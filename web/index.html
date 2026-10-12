@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#B4452B">
+<meta name="description" content="Skipture keeps your sprite and texture libraries and a single-pixel editor in your browser, and tracks how much of each has been redrawn by hand.">
+<title>Skipture</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top"><a class="brand" href="#/">Skipture</a>
+  <nav class="topnav" aria-label="Main"><a href="#/" data-nav>Libraries</a><a href="#/import" data-nav>Import</a></nav></header>
+<main class="wrap" id="main"></main>
+<div class="flash" id="flash" aria-live="polite"></div>
+<nav class="tabbar" aria-label="Main"><a href="#/" data-nav>Libraries</a><a href="#/import" data-nav>Import</a></nav>
+<script src="core.js"></script>
+<script src="lib.js"></script>
+<script src="store.js"></script>
+<script src="editor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

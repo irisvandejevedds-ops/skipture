@@ -1,0 +1,50 @@
+name: test and deploy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Python dependencies
+        run: pip install fastapi httpx argon2-cffi jinja2 python-multipart pytest uvicorn
+      - name: Server side (libraries, zips, pages)
+        run: cd app && python -m pytest -q
+      - name: Editor logic
+        run: cd app && node --test tests/core.test.js
+      - name: Browser app logic (libraries, zip and PNG files, merging)
+        run: cd web && node --test tests/
+      - name: The site builds
+        run: python3 site/build.py
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: deploy-site
+    env:
+      HAVE_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Build the site
+        if: env.HAVE_CLOUDFLARE == 'true'
+        run: python3 site/build.py
+      - name: Say why nothing was deployed
+        if: env.HAVE_CLOUDFLARE != 'true'
+        run: echo "Not deployed - add the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to turn on deploys."
+      - name: Deploy to Cloudflare (skipture.jessevriend.com)
+        if: env.HAVE_CLOUDFLARE == 'true'
+        run: npx --yes wrangler@4 deploy --config site/wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

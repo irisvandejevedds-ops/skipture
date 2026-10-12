@@ -8,3 +8,6 @@ venv/
 *.db-shm
 .env
 data/
+site/dist/
+site/.wrangler/
+node_modules/

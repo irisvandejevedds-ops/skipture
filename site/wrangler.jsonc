@@ -1,0 +1,8 @@
+{
+  "name": "skipture-site",
+  "compatibility_date": "2026-09-01",
+  // static files only: the whole app runs in the visitor's browser (see build.py)
+  "assets": { "directory": "./dist", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "skipture.jessevriend.com", "custom_domain": true }],
+  "observability": { "enabled": false }
+}
