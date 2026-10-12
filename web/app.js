@@ -57,7 +57,7 @@
   var GATE_INFO = '<strong>Try it first.</strong> Type <code>DEMO</code> as the key to look around a demo room full of made-up libraries. It lives in this tab and is gone when you close it.<br><br>' +
     '<strong>Rooms.</strong> A room is a private set of libraries. The key is how you find it. <strong>Guests</strong> come in with the key alone: they can look around, bring art in, and draw on slots nobody has taken over. ' +
     '<strong>Artists</strong> come in with the key and the passphrase: they can also redraw anything, sign sprites off as humanized, export, and edit or delete libraries and sprites.<br><br>' +
-    '<strong>Making a room.</strong> Enter a key nobody has used yet (at least 8 characters) together with a new passphrase (at least 8). Skipture asks you to confirm, and then the room is yours and you are its artist. ' +
+    '<strong>Making a room.</strong> Enter a key nobody has used yet (at least 4 characters; a longer key is harder to guess) together with a new passphrase (at least 8). Skipture asks you to confirm, and then the room is yours and you are its artist. ' +
     'Give the key to the people you want as guests and keep the passphrase to yourself.<br><br>' +
     'The passphrase is scrambled in your browser before it is sent, so the server never sees it. If you forget it, it cannot be recovered.';
 
@@ -329,7 +329,7 @@
     },
     create: async function (f, el) {
       if (f.again !== makeRoom.pass) throw new Error('The two passphrases are not the same.');
-      if (makeRoom.key.length < 8) throw new Error('A room key needs at least 8 characters. Press Back and choose a longer one.');
+      if (makeRoom.key.length < 4) throw new Error('A room key needs at least 4 characters. Press Back and choose a longer one.');
       if (makeRoom.pass.length < 8) throw new Error('A passphrase needs at least 8 characters. Press Back and choose a longer one.');
       var btn = $('button[type=submit]', el); btn.disabled = true; btn.textContent = 'Making…';
       try { start(await A.create(makeRoom.key, makeRoom.pass)); } finally { btn.disabled = false; btn.textContent = 'Make the room'; }

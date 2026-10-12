@@ -25,7 +25,7 @@ async function handle(request, env) {
     try { body = await request.json(); } catch { return fail('That request was not understood.', 400); }
     const key = String(body.key ?? '').trim();
     if (key.length < 1 || key.length > 80) return fail('Enter the room key.', 400);
-    if (route === 'create' && (key.length < 8 || key.toLowerCase() === 'demo')) return fail('Choose a longer key: at least 8 characters.', 400);
+    if (route === 'create' && (key.length < 4 || key.toLowerCase() === 'demo')) return fail('Choose a longer key: at least 4 characters.', 400);
     if (!(await gate(env, route, ip))) return fail(route === 'enter' ? 'Too many tries. Wait a few minutes.' : 'Too many new rooms from your address. Try again later.', 429);
     const id = await sha256hex('skipture-room:' + key);
     const res = await env.ROOM.get(env.ROOM.idFromName(id)).fetch(`https://room/${route}`, { method: 'POST', body: JSON.stringify({ proof: body.proof || '' }) });

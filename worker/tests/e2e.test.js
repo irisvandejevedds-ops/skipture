@@ -21,7 +21,7 @@ const rpc = async (who, op, args) => { const r = await post('rpc', { op, args },
 test('rooms over HTTP: create, enter as guest and artist, and what each may do', { skip }, async () => {
   const key = unique(), pass = 'violet harbour 42';
   let r = await post('enter', { key }); assert.equal(r.status, 404);
-  r = await post('create', { key: 'short', proof: await proof('short', pass) }); assert.equal(r.status, 400);
+  r = await post('create', { key: 'abc', proof: await proof('abc', pass) }); assert.equal(r.status, 400);
   r = await post('create', { key, proof: await proof(key, pass) }); assert.equal(r.status, 200);
   const artist = await r.json(); assert.equal(artist.role, 'artist'); assert.match(artist.room, /^[0-9a-f]{64}$/);
   r = await post('create', { key, proof: await proof(key, 'someone else') }); assert.equal(r.status, 409);
