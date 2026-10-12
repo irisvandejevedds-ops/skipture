@@ -249,13 +249,9 @@
   }
 
   // ---------------- import ----------------
-  var TEMPLATE = { format: 'skipture-library', version: 1, library: { slug: 'my-library', name: 'My library', app: 'My app', description: 'What this library is for.' },
-    sprites: [{ slot: 'example-sprite', name: 'Example sprite', kind: 'sprite', width: 16, height: 16, tile: false, background: 'transparent', background_color: null, category: '', notes: 'Delete this entry and list your own slots.' },
-      { slot: 'example-texture', name: 'Example texture', kind: 'texture', width: 32, height: 32, tile: true, background: 'opaque', background_color: '#336633', category: 'ground', notes: 'Opaque slots need a background colour.' }] };
-
   function importPage(report, error) {
     var html = pagehead('i-import', 'Import', 'Bring art or a whole library into this room. <strong>Import a library</strong> takes a zip (a schema.json and sprites/&lt;slot&gt;.png for each slot) or just a schema.json. If its library id matches one here, new art goes only into slots that are empty or still as received; anything the artist redrew or signed off is kept. A zip for a new library creates it. ' +
-      '<strong>Blank schema</strong> is an empty template to describe a library in a text editor. <strong>Build manually</strong> starts an empty library you fill slot by slot. Everything on this page is open to guests and artists alike.');
+      '<strong>Format guide</strong> is a document for developers that explains the zip and schema.json, with a blank starter schema inside it. <strong>Build manually</strong> starts an empty library you fill slot by slot. Everything on this page is open to guests and artists alike.');
     if (error) html += '<div class="error">' + esc(error) + '</div>';
     if (report) {
       html += '<div class="card"><h3>' + (report.created ? 'Created' : 'Merged into') + ' ' + esc(report.library.name) + '</h3><p><strong>' + (report.added.length + report.updated.length) + '</strong> sprites taken in &middot; <strong>' + report.kept.length + '</strong> kept as the artist\'s &middot; <strong>' + report.skipped.length + '</strong> skipped &middot; <strong>' + report.problems.length + '</strong> problems</p><div class="row"><a class="btn" href="#/library/' + report.library.id + '">Open the library</a></div></div>';
@@ -265,8 +261,8 @@
     }
     html += '<div class="card">' + head('i-drop', 'Import a library', 'A zip can hold up to 16 MB. Slots must match the sizes in the schema exactly. A schema.json on its own makes the library with every slot waiting for art.') +
       '<div class="dropbox" id="drop"><p class="big">Drop a zip or schema.json here</p><input type="file" id="zipfile" accept=".zip,.json,application/zip,application/json"><p class="small muted">or choose a file</p></div></div>';
-    html += '<div class="cols"><div class="card">' + head('i-blank', 'Blank schema', 'A JSON file describing a library: its name and one entry per slot, with width, height, kind, background and notes. Fill it in, then import it here to make the library with empty slots, or send it to someone who will draw the art.') +
-      '<p class="small">A template to describe a library in a text editor.</p><div class="row"><button class="btn" type="button" data-do="template">Download blank schema</button></div></div>' +
+    html += '<div class="cols"><div class="card">' + head('i-blank', 'Format guide and blank schema', 'A short document to pass to developers. It explains the zip, every field of schema.json and the rules for the PNGs, and has a blank starter schema inside it: copy that into a schema.json, fill it in, then import it here to make the library with empty slots, or send it to someone who will draw the art.') +
+      '<p class="small">What a developer needs, with a blank schema inside.</p><div class="row"><button class="btn" type="button" data-do="template">Download format guide</button></div></div>' +
       '<div class="card">' + head('i-manual', 'Build a library manually', 'Starts an empty library. Open it afterwards to add slots one by one, then bring art in or draw it.') +
       '<form data-act="newlib"><label class="f">Name<input type="text" name="name" required maxlength="80"></label><label class="f">App<input type="text" name="app" maxlength="60" placeholder="Alberich"></label><label class="f">Description<input type="text" name="description" maxlength="500"></label><button class="btn" type="submit">Create library</button></form></div></div>';
     return html;
@@ -450,7 +446,10 @@
     leave: async function () { api = null; A.leave(); makeRoom = null; go('#/'); },
     back: async function () { makeRoom = null; route(); },
     insp: async function () { var e = $('#editor'); if (e) e.classList.toggle('sheet'); },
-    template: async function () { download(new TextEncoder().encode(JSON.stringify(TEMPLATE, null, 2) + '\n'), 'blank-schema.json', 'application/json'); },
+    template: async function () {
+      var r = await fetch('library-format.md'); if (!r.ok) throw new Error('Could not fetch the guide. Try again.');
+      download(new Uint8Array(await r.arrayBuffer()), 'skipture-library-format.md', 'text/markdown');
+    },
     'export': async function (el) { var r = await api.exportZip(+el.dataset.id, el.dataset.purpose); download(r.data, r.name); route(); },
     state: async function (el) {
       if (el.dataset.confirm && !window.confirm(el.dataset.confirm)) return;

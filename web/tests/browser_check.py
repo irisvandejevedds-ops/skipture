@@ -19,7 +19,7 @@ import urllib.parse
 
 WEB = pathlib.Path(__file__).resolve().parents[1]
 API = urllib.parse.urlparse(os.environ.get("SKIPTURE_API", "http://127.0.0.1:8788"))
-TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".html": "text/html", ".webmanifest": "application/manifest+json"}
+TYPES = {".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".html": "text/html", ".webmanifest": "application/manifest+json", ".md": "text/markdown"}
 
 COMMON = r"""
   var out = [];
@@ -34,7 +34,7 @@ COMMON = r"""
   window.confirm = function () { return true; };
   var L = window.SkipLib, C = window.SkipCore, made = [];
   var mk = URL.createObjectURL.bind(URL);
-  URL.createObjectURL = function (b) { if (b && (b.type === 'application/zip' || b.type === 'application/json')) made.push(b); return mk(b); };
+  URL.createObjectURL = function (b) { if (b && (b.type === 'application/zip' || b.type === 'text/markdown')) made.push(b); return mk(b); };
   async function waitText(re, what) { return until(function () { return re.test($('#main').textContent); }, what); }
   async function pill() { return ($('#who .pill') || {}).textContent; }
   async function enterRoom(key, pass) { await until(function () { return $('form[data-act=enter]'); }, 'the gate'); $('#flash').innerHTML = ''; setv('form[data-act=enter] [name=key]', key); setv('form[data-act=enter] [name=pass]', pass || ''); submit($('form[data-act=enter]')); }
@@ -132,11 +132,13 @@ DEMO = r"""
 
     location.hash = '#/import';
     await until(function () { return $('#drop'); }, 'the import page');
-    say(!!$('[data-do=template]') && !!$('form[data-act=newlib]') && !!$('#zipfile'), 'import has the dropbox, the blank schema and the manual builder');
+    say(!!$('[data-do=template]') && !!$('form[data-act=newlib]') && !!$('#zipfile'), 'import has the dropbox, the format guide and the manual builder');
     click($('[data-do=template]'));
-    await until(function () { return made.some(function (b) { return b.type === 'application/json'; }); }, 'the template');
-    var tpl = JSON.parse(await made.filter(function (b) { return b.type === 'application/json'; })[0].text());
-    say(tpl.format === 'skipture-library' && tpl.sprites.length === 2, 'the blank schema downloads as valid JSON');
+    await until(function () { return made.some(function (b) { return b.type === 'text/markdown'; }); }, 'the guide');
+    var guide = await made.filter(function (b) { return b.type === 'text/markdown'; })[0].text();
+    say(/^# Skipture library format/.test(guide) && /Checklist before you send it/.test(guide), 'the download is the full format guide');
+    var tpl = JSON.parse(guide.match(/## Starter schema[\s\S]*?```json\n([\s\S]*?)\n```/)[1]);
+    say(tpl.format === 'skipture-library' && tpl.sprites.length === 2, 'the guide contains a valid starter schema');
     var file = new File([JSON.stringify(tpl)], 'blank-schema.json', { type: 'application/json' }), dt = new DataTransfer(); dt.items.add(file);
     $('#zipfile').files = dt.files; $('#zipfile').dispatchEvent(new Event('change'));
     await waitText(/Created My library/, 'the schema import');

@@ -5,7 +5,7 @@ import shutil
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DIST, WEB = ROOT / "site/dist", ROOT / "web"
-FILES = ["index.html", "app.css", "core.js", "lib.js", "store.js", "ops.js", "api.js", "demo.js", "editor.js", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]
+FILES = ["index.html", "app.css", "core.js", "lib.js", "store.js", "ops.js", "api.js", "demo.js", "editor.js", "app.js", "manifest.webmanifest", "library-format.md", "icon-192.png", "icon-512.png", "icon-maskable-512.png"]
 CSP = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 
