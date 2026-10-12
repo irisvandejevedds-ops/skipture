@@ -108,6 +108,26 @@ DEMO = r"""
     var n2 = $$('.stats .bignum').map(function (b) { return b.textContent.replace(/\s+/g, ' '); });
     say(/14\s*of\s*15/.test(n2[0]) && /^6\s*40%/.test(n2[1]), 'the dashboard now says ' + n2[0] + ' / ' + n2[1]);
 
+    // duplicate this (signed-off) sprite, then copy the copy over another sprite of the same size
+    location.hash = '#/library/' + ($$('.side .lib').filter(function (a) { return /Pocket Frogs/.test(a.textContent); })[0].getAttribute('href').split('/').pop());
+    await until(function () { return $$('.t').length === 6; }, 'the frogs again');
+    click($$('.t').filter(function (t) { return /frog-4/.test(t.textContent); })[0]);
+    await editorReady();
+    submit($('form[data-act=dup]'));
+    await until(function () { return $('#editor') && /frog-4-copy/.test($('.crumb').textContent) && window.__skipture && window.__skipture.test; }, 'the duplicate');
+    say($('#statechip').textContent === 'redrawn', 'duplicating a signed-off sprite gives a redrawn copy (the sign-off is not copied)');
+    say($('form[data-act=meta] [name=name]').value === 'Frog copy', 'the copy has the same details under a new name');
+    var opt = $$('#copyto option').filter(function (o) { return /frog-5/.test(o.textContent); })[0];
+    say(!!opt && $$('#copyto option').every(function (o) { return !/frog-4-copy/.test(o.textContent); }), 'copy over offers other sprites of the same size, not this one');
+    $('#copyto').value = opt.value;
+    click($('[data-do=copyover]'));
+    await until(function () { return /Copied onto/.test($('#flash').textContent); }, 'the copy over');
+    location.hash = '#/sprite/' + opt.value;
+    await until(function () { return $('form[data-act=meta]') && $('form[data-act=meta] [name=name]').value === 'Elder frog'; }, 'the target');
+    say($('#statechip').textContent === 'redrawn' && /frog-5/.test($('.crumb').textContent), 'copy over changed the art of the other sprite and left its name and slot alone');
+    location.hash = '#/';
+    await until(function () { return $('.stats'); }, 'the dashboard after copying');
+
     location.hash = '#/libraries';
     await until(function () { return $('.libmgr'); }, 'the libraries page');
     $$('details').forEach(function (d2) { d2.open = true; });

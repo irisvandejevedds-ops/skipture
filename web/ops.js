@@ -35,6 +35,22 @@
   async function needSprite(S, id) { var s = await S.sprite(id); if (!s) throw new L.LibError('That sprite is not here.'); return s; }
   async function progressFor(S, libId) { return L.progress(await S.spritesMeta(libId)); }
 
+  /** store art on a sprite: the artist's save, or a guest's submission (which lands as received and never touches a slot the artist has taken over) */
+  async function storeArt(S, role, id, data, changedPx, blank, edited, bgMode, bgColor) {
+    var s = await needSprite(S, id), state;
+    if (role === 'artist') state = await L.saveArt(S, s.id, data, changedPx, blank, edited, bgMode, bgColor);
+    else {
+      if (s.state === 'touched' || s.state === 'humanized') throw new Denied('The artist has taken this slot over, so it can no longer be changed here.');
+      var dim = L.pngInfo(data);
+      if (dim[0] !== s.width || dim[1] !== s.height) throw new L.LibError('This sprite is ' + s.width + 'x' + s.height + '; the picture is a different size.');
+      if (s.state === 'raw') await L.revise(S, s, 'before a new submission');
+      s.png = data; s.originalPng = data; s.state = blank ? 'empty' : 'raw'; s.changedPx = 0; s.humanizedAt = null; s.origin = blank ? 'blank' : 'guest'; s.updatedAt = L.iso();
+      await S.saveSprite(s); await L.touchLibrary(S, s.libraryId); state = s.state;
+    }
+    var p = await progressFor(S, s.libraryId);
+    return { state: state, word: L.STATE_WORDS[state], humanized: p.humanized, total: p.total, pct: p.pct };
+  }
+
   var OPS = {
     overview: ['guest', async function (S) {
       var libs = (await S.libraries()).sort(function (a, b) { return (a.app || '').toLowerCase().localeCompare((b.app || '').toLowerCase()) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
@@ -79,19 +95,46 @@
     }],
 
     saveArt: ['guest', async function (S, a, role) {
-      var s = await needSprite(S, a.id), data = b64dec(a.png), state;
-      if (role === 'artist') state = await L.saveArt(S, s.id, data, a.changedPx, !!a.blank, a.edited !== false, a.bgMode, a.bgColor);
-      else {
-        if (s.state === 'touched' || s.state === 'humanized') throw new Denied('The artist has taken this slot over, so it can no longer be changed here.');
-        var dim = L.pngInfo(data);
-        if (dim[0] !== s.width || dim[1] !== s.height) throw new L.LibError('This sprite is ' + s.width + 'x' + s.height + '; the picture is a different size.');
-        if (s.state === 'raw') await L.revise(S, s, 'before a new submission');
-        var blank = !!a.blank;
-        s.png = data; s.originalPng = data; s.state = blank ? 'empty' : 'raw'; s.changedPx = 0; s.humanizedAt = null; s.origin = blank ? 'blank' : 'guest'; s.updatedAt = L.iso();
-        await S.saveSprite(s); await L.touchLibrary(S, s.libraryId); state = s.state;
+      return storeArt(S, role, a.id, b64dec(a.png), a.changedPx, !!a.blank, a.edited !== false, a.bgMode, a.bgColor);
+    }],
+
+    /** a new slot with the same details (and the same art) as an existing one, in this library or another */
+    duplicate: ['guest', async function (S, a, role) {
+      var src = await needSprite(S, a.id), libId = a.libraryId ? Number(a.libraryId) : src.libraryId;
+      await needLibrary(S, libId); await room(S, 1);
+      var taken = {}; (await S.sprites(libId)).forEach(function (x) { taken[x.slot] = 1; });
+      var slot = str(a.slot, 64).toLowerCase();
+      if (!slot) { var base = src.slot.slice(0, 57) + '-copy', n = 1; slot = base; while (taken[slot]) { n++; slot = base + '-' + n; } }
+      var keepHand = role === 'artist' && (src.state === 'touched' || src.state === 'humanized');
+      var id = await L.addSlot(S, libId, { slot: slot, name: str(a.name, 80) || (src.name + ' copy').slice(0, 80), width: src.width, height: src.height, kind: src.kind, tile: src.tile, bgMode: src.bgMode,
+        bgColor: src.bgColor, category: src.category, notes: src.notes, art: src.state === 'empty' ? null : src.png, origin: 'copy' });
+      if (keepHand) {                       // the artist's own redrawing stays redrawn (a sign-off is never copied: that has to be deliberate)
+        var c = await S.sprite(id);
+        c.originalPng = src.originalPng; c.state = 'touched'; c.changedPx = src.changedPx; c.updatedAt = L.iso();
+        await S.saveSprite(c);
       }
-      var p = await progressFor(S, s.libraryId);
-      return { state: state, word: L.STATE_WORDS[state], humanized: p.humanized, total: p.total, pct: p.pct };
+      return { id: id };
+    }],
+
+    /** the art of one sprite onto another of the same size; the target keeps its name, slot id and every other detail */
+    copyOver: ['guest', async function (S, a, role) {
+      var src = await needSprite(S, a.from), dst = await needSprite(S, a.to);
+      if (src.id === dst.id) throw new L.LibError('Choose a different sprite to copy onto.');
+      if (src.width !== dst.width || src.height !== dst.height) throw new L.LibError('That sprite is ' + dst.width + 'x' + dst.height + ' and this one is ' + src.width + 'x' + src.height + '. Art can only be copied between sprites of the same size.');
+      return storeArt(S, role, dst.id, src.png, a.changedPx, src.state === 'empty', true);
+    }],
+
+    /** the other sprites in the room the same size as this one (where art could be copied to) */
+    sameSize: ['guest', async function (S, a, role) {
+      var src = await needSprite(S, a.id), libs = await S.libraries(), out = [];
+      for (var i = 0; i < libs.length; i++) {
+        (await S.spritesMeta(libs[i].id)).forEach(function (x) {
+          if (x.id === src.id || x.width !== src.width || x.height !== src.height) return;
+          if (role !== 'artist' && (x.state === 'touched' || x.state === 'humanized')) return;
+          out.push({ id: x.id, slot: x.slot, name: x.name, state: x.state, libraryId: libs[i].id, library: libs[i].name });
+        });
+      }
+      return { sprites: out };
     }],
 
     setState: ['artist', async function (S, a) { await L.setState(S, a.id, a.action); return {}; }],

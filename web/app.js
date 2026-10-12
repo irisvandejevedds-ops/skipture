@@ -184,7 +184,7 @@
 
   async function editorPage(id) {
     var d = await api.call('sprite', { id: id }), s = d.sprite, lib = d.lib, art = isArtist();
-    var results = await Promise.all([api.png(id, 'current'), api.png(id, 'original'), api.call('overview'), api.call('library', { id: lib.id })]);
+    var results = await Promise.all([api.png(id, 'current'), api.png(id, 'original'), api.call('overview'), api.call('library', { id: lib.id }), api.call('sameSize', { id: id })]);
     var ov = results[2], ld = results[3], sibs = ld.sprites, at = sibs.findIndex(function (x) { return x.id === id; });
     ov.libraries.forEach(function (l) { if (l.id === lib.id) l.progress = ld.progress; });
     var p = ld.progress;
@@ -213,6 +213,10 @@
       '<div class="in"><div class="prevs previews"><div><span class="cap">1x</span><div class="pvbox checker sm"><canvas id="pv1"></canvas></div></div><div><span class="cap">Larger</span><div class="pvbox checker sm"><canvas id="pv3"></canvas></div></div><div><span class="cap">Original</span><div class="pvbox checker sm"><canvas id="pvo"></canvas></div></div>' + (s.tile ? '<div><span class="cap">Tiled</span><div class="pvbox checker sm"><canvas id="pvt"></canvas></div></div>' : '') + '</div></div></div>' +
       '<div class="sec">' + ph('i-sign', 'State', p.humanized + ' of ' + p.total + ' done', art ? 'Humanized means you looked at this sprite and it is yours: nothing sloppy left. It is a deliberate step, so editing a humanized sprite sets it back to redrawn until you sign it off again. Resetting puts the original art back (the redrawn version is kept in history).' : 'Your drawing is saved as the art for this slot, as received. Only the artist can sign a sprite off as humanized.') +
       '<div class="in">' + (art ? '<div class="row" id="signrow" style="margin:0">' + signRow(s.state, s.id) + '</div>' : '<span class="small dim">The artist signs sprites off.</span>') + '</div></div>' +
+      '<div class="sec">' + ph('i-copy', 'Copy', '', '<strong>Duplicate</strong> makes a new slot with the same details and the same art, in this library or another (leave the id blank to get <code>' + esc(s.slot) + '-copy</code>). ' + (art ? 'Your redrawing carries over as redrawn; a sign-off never does. ' : 'The copy is saved as received. ') + '<strong>Copy over</strong> puts this sprite\'s art onto another sprite of the same size ' + s.width + '&times;' + s.height + ' and leaves that sprite\'s name, slot id and other details alone. Unsaved changes here are saved first.') +
+      '<div class="in"><form data-act="dup" data-id="' + s.id + '"><label class="f">New slot id (optional)<input type="text" name="slot" maxlength="64" placeholder="' + esc(s.slot) + '-copy" pattern="[a-z0-9][a-z0-9_.\\-]*" autocomplete="off"></label>' +
+      '<label class="f">Into<select name="libraryId">' + ov.libraries.map(function (l) { return '<option value="' + l.id + '"' + (l.id === lib.id ? ' selected' : '') + '>' + esc(l.name) + '</option>'; }).join('') + '</select></label><button class="tbtn" type="submit">Duplicate</button></form>' +
+      '<div style="margin-top:12px">' + (results[4].sprites.length ? '<label class="f">Copy this art onto<select id="copyto">' + results[4].sprites.map(function (x) { return '<option value="' + x.id + '">' + esc(x.library) + ' / ' + esc(x.slot) + ' &middot; ' + W[x.state] + '</option>'; }).join('') + '</select></label><button class="tbtn warn" type="button" data-do="copyover" data-id="' + s.id + '">Copy over</button>' : '<span class="small dim">No other ' + s.width + '&times;' + s.height + ' sprite to copy onto.</span>') + '</div></div></div>' +
       '<div class="sec"' + (art ? '' : ' hidden') + '>' + ph('i-bg', 'Background', '', 'Transparent sprites show a checkerboard behind them. Opaque ones are fully filled: switching to opaque lays the background colour behind every see-through pixel (undo reverses it), and the eraser then paints the background colour. Switching back makes pixels of exactly that colour transparent again.') +
       '<div class="in"><div class="seg"><label><input type="radio" name="bg" value="transparent"' + (s.bgMode === 'transparent' ? ' checked' : '') + '> Transparent</label><label><input type="radio" name="bg" value="opaque"' + (s.bgMode === 'opaque' ? ' checked' : '') + '> Opaque</label></div><div class="row" style="margin:0"><span id="bgsw" class="swatch"></span><input id="bgcolor" type="text" maxlength="7" value="' + esc(s.bgColor) + '" spellcheck="false" aria-label="Background colour"><button type="button" class="tbtn sm" id="bguse">Use current</button></div></div></div>' +
       '<div class="sec">' + ph('i-meta', 'Slot', '', 'The slot id is <code>' + esc(s.slot) + '</code> and the file for it is sprites/' + esc(s.slot) + '.png. Notes are written into the schema you export, so whoever fills the library in can read them.') + '<div class="in">' +
@@ -318,6 +322,24 @@
     ledger.cur = id;
   }
 
+  /** how many pixels differ between two PNGs of the same size (fully transparent pixels all count as the same) */
+  function pixels(bytes) {
+    return createImageBitmap(new Blob([bytes], { type: 'image/png' })).then(function (bm) {
+      var c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
+      var x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+      return x.getImageData(0, 0, bm.width, bm.height).data;
+    });
+  }
+  async function pxDiff(a, b) {
+    var pa = await pixels(a), pb = await pixels(b), n = 0;
+    if (pa.length !== pb.length) return pa.length / 4;
+    for (var i = 0; i < pa.length; i += 4) {
+      if (pa[i + 3] === 0 && pb[i + 3] === 0) continue;
+      if (pa[i] !== pb[i] || pa[i + 1] !== pb[i + 1] || pa[i + 2] !== pb[i + 2] || pa[i + 3] !== pb[i + 3]) n++;
+    }
+    return n;
+  }
+
   function missing(msg) { return '<div class="content">' + pagehead('i-gone', 'Not found') + '<div class="card">' + head('i-nf', 'Nothing here') + '<p>' + esc(msg) + '</p><div class="row"><a class="btn" href="#/">Back to the dashboard</a></div></div></div>'; }
 
   // ---------------- routing ----------------
@@ -418,6 +440,11 @@
       var btn = $('button[type=submit]', el); btn.disabled = true; btn.textContent = 'Making…';
       try { start(await A.create(makeRoom.key, makeRoom.pass)); } finally { btn.disabled = false; btn.textContent = 'Make the room'; }
     },
+    dup: async function (f, el) {
+      if (editor && editor.dirty()) await editor.save();
+      var r = await api.call('duplicate', { id: +el.dataset.id, slot: f.slot, libraryId: +f.libraryId });
+      flash('Duplicated.'); go('#/sprite/' + r.id);
+    },
     newlib: async function (f) { go('#/library/' + (await api.call('createLibrary', f)).id); },
     editlib: async function (f, el) { await api.call('editLibrary', { id: +el.dataset.id, name: f.name, app: f.app, description: f.description }); flash('Saved.'); route(); },
     addslot: async function (f, el) { go('#/sprite/' + (await api.call('addSlot', { libraryId: +el.dataset.id, slot: f.slot, name: f.name, width: f.width, height: f.height, kind: f.kind, bgMode: f.bgMode, category: f.category, tile: f.tile === '1', notes: f.notes })).id); },
@@ -445,6 +472,14 @@
   var doing = {
     leave: async function () { api = null; A.leave(); makeRoom = null; go('#/'); },
     back: async function () { makeRoom = null; route(); },
+    copyover: async function (el) {
+      var to = +$('#copyto').value, label = $('#copyto').selectedOptions[0].textContent;
+      if (!window.confirm('Copy this art over ' + label + '? Its name and other details stay; its current art is kept in history.')) return;
+      if (editor && editor.dirty()) await editor.save();
+      var from = +el.dataset.id, srcArt = await api.png(from, 'current'), dstOrig = await api.png(to, 'original');
+      var res = await api.call('copyOver', { from: from, to: to, changedPx: await pxDiff(srcArt, dstOrig) });
+      flash('Copied onto ' + label.split(' \u00b7 ')[0] + ' (now ' + W[res.state] + ').'); route();
+    },
     insp: async function () { var e = $('#editor'); if (e) e.classList.toggle('sheet'); },
     template: async function () {
       var r = await fetch('library-format.md'); if (!r.ok) throw new Error('Could not fetch the guide. Try again.');

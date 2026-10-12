@@ -113,3 +113,57 @@ test('the room has a size limit', async () => {
   S.stats = async () => ({ sprites: 0, libraries: O.CAP.libraries, bytes: 0 });
   await assert.rejects(O.run(S, 'guest', 'createLibrary', { name: 'y' }), /up to 60 libraries/);
 });
+
+test('duplicate: a new slot with the same details and art; an artist keeps their redrawing but never a sign-off', async () => {
+  const { S, lib, a } = await room();
+  const other = (await O.run(S, 'artist', 'createLibrary', { name: 'Other' })).id;
+  await O.run(S, 'artist', 'editMeta', { id: a, name: 'Frog', kind: 'texture', tile: true, category: 'ground', notes: 'hop' });
+  // an empty source gives an empty copy
+  let r = await O.run(S, 'guest', 'duplicate', { id: a });
+  let d = await S.sprite(r.id);
+  assert.equal(d.slot, 'a-copy'); assert.equal(d.name, 'Frog copy'); assert.equal(d.state, 'empty');
+  assert.equal(d.kind, 'texture'); assert.equal(d.tile, true); assert.equal(d.category, 'ground'); assert.equal(d.notes, 'hop'); assert.equal(d.width, 4);
+  // art comes across; the slot id is made unique
+  await O.run(S, 'guest', 'saveArt', { id: a, png: b(await px(4, 4, 80)) });
+  d = await S.sprite((await O.run(S, 'guest', 'duplicate', { id: a })).id);
+  assert.equal(d.slot, 'a-copy-2'); assert.equal(d.state, 'raw'); assert.deepEqual(Array.from(d.png), Array.from((await S.sprite(a)).png));
+  // named, into another library
+  d = await S.sprite((await O.run(S, 'guest', 'duplicate', { id: a, slot: 'Moved', name: 'Elsewhere', libraryId: other })).id);
+  assert.equal(d.slot, 'moved'); assert.equal(d.libraryId, other); assert.equal(d.name, 'Elsewhere');
+  await assert.rejects(O.run(S, 'guest', 'duplicate', { id: a, slot: 'moved', libraryId: other }), /already exists/);
+  // the artist's redrawing is kept, as redrawn; a sign-off is not copied
+  await O.run(S, 'artist', 'saveArt', { id: a, png: b(await px(4, 4, 120)), changedPx: 6, edited: true });
+  await O.run(S, 'artist', 'setState', { id: a, action: 'humanize' });
+  d = await S.sprite((await O.run(S, 'artist', 'duplicate', { id: a })).id);
+  assert.equal(d.state, 'touched'); assert.equal(d.changedPx, 6); assert.equal(d.humanizedAt, null);
+  assert.deepEqual(Array.from(d.png), Array.from((await S.sprite(a)).png)); assert.deepEqual(Array.from(d.originalPng), Array.from((await S.sprite(a)).originalPng));
+  // a guest copying it gets the picture as received, not as the artist's work
+  d = await S.sprite((await O.run(S, 'guest', 'duplicate', { id: a })).id);
+  assert.equal(d.state, 'raw'); assert.equal(d.changedPx, 0);
+});
+
+test('copy over: the art moves, the target keeps its details, sizes must match, guests cannot overwrite the artist\'s work', async () => {
+  const { S, lib, a, c } = await room();
+  const big = (await O.run(S, 'artist', 'addSlot', { libraryId: lib, slot: 'big', width: 8, height: 8 })).id;
+  await O.run(S, 'artist', 'editMeta', { id: c, name: 'Keep me', kind: 'texture', tile: true, category: 'keep', notes: 'n' });
+  await O.run(S, 'guest', 'saveArt', { id: a, png: b(await px(4, 4, 70)) });
+  const same = await O.run(S, 'guest', 'sameSize', { id: a });
+  assert.deepEqual(same.sprites.map(x => x.slot).sort(), ['c']);                 // not itself, not the 8x8
+  await assert.rejects(O.run(S, 'guest', 'copyOver', { from: a, to: big }), /same size/);
+  await assert.rejects(O.run(S, 'guest', 'copyOver', { from: a, to: a }), /different sprite/);
+  const r = await O.run(S, 'guest', 'copyOver', { from: a, to: c });
+  assert.equal(r.state, 'raw');
+  let t = await S.sprite(c);
+  assert.deepEqual(Array.from(t.png), Array.from((await S.sprite(a)).png));
+  assert.equal(t.name, 'Keep me'); assert.equal(t.slot, 'c'); assert.equal(t.kind, 'texture'); assert.equal(t.tile, true); assert.equal(t.category, 'keep'); assert.equal(t.notes, 'n');
+  // the artist copying makes it redrawn (as a save would), and a guest can no longer copy onto it
+  await O.run(S, 'artist', 'copyOver', { from: a, to: c, changedPx: 9 });
+  t = await S.sprite(c); assert.equal(t.state, 'touched'); assert.equal(t.changedPx, 9); assert.equal(t.name, 'Keep me');
+  await assert.rejects(O.run(S, 'guest', 'copyOver', { from: a, to: c }), O.Denied);
+  assert.deepEqual((await O.run(S, 'guest', 'sameSize', { id: a })).sprites, []);   // locked slots are not even offered
+  assert.deepEqual((await O.run(S, 'artist', 'sameSize', { id: a })).sprites.map(x => x.slot), ['c']);
+  // an empty source empties the target
+  const e = (await O.run(S, 'artist', 'addSlot', { libraryId: lib, slot: 'e', width: 4, height: 4 })).id;
+  await O.run(S, 'artist', 'copyOver', { from: e, to: c });
+  assert.equal((await S.sprite(c)).state, 'empty');
+});
