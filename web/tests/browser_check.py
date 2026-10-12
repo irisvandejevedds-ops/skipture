@@ -60,6 +60,36 @@ DEMO = r"""
     click($$('.tile').filter(function (t) { return /Frog$/.test($('.name', t).textContent) && /waiting/.test(t.textContent); })[0]);
     var ed = await editorReady(), d = ed.test.doc, W = d.w, H = d.h;
     say(W === 16 && H === 16, 'the pixel editor opened on the sprite');
+    // the colour pop-out
+    say($('#colpop').hidden && !!$('#colbtn') && $('#colbtn').previousElementSibling.dataset.tool === 'pen', 'the colour button sits beside the pen, with the wheel tucked away');
+    click($('#colbtn'));
+    say(!$('#colpop').hidden && $('#colpop').contains($('#wheel')) && $('#colpop').getBoundingClientRect().width > 150, 'the button pops the colour wheel out');
+    setv('#hex', '#E040A0'); $('#hex').dispatchEvent(new Event('change', { bubbles: true }));
+    say($('#colsw').style.background.replace(/\s/g, '') === 'rgb(224,64,160)', 'the button shows the chosen colour');
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    say($('#colpop').hidden, 'tapping elsewhere closes the pop-out');
+
+    // two fingers: pinch to zoom, and no drawing between them
+    var cv0 = $('#cv'), w0 = cv0.getBoundingClientRect().width, r0 = cv0.getBoundingClientRect();
+    function tp(type, id, x, y) { cv0.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch', isPrimary: id === 11, button: 0, clientX: x, clientY: y })); }
+    var cx = r0.left + r0.width / 2, cy = r0.top + r0.height / 3;
+    ed.test.setColor(C.hexToColor('#1A9C98'));
+    tp('pointerdown', 11, cx - 20, cy); tp('pointerdown', 12, cx + 20, cy);
+    for (var k = 1; k <= 6; k++) { tp('pointermove', 11, cx - 20 - k * 8, cy); tp('pointermove', 12, cx + 20 + k * 8, cy); }
+    tp('pointerup', 12, cx + 68, cy); tp('pointerup', 11, cx - 68, cy);
+    say(d.colors().length === 0 && !ed.test.doc.canUndo(), 'a two-finger gesture draws nothing, not even a line between the fingers');
+    say(cv0.getBoundingClientRect().width > w0 * 1.5 || cv0.getBoundingClientRect().width >= 32 * 16 - 1, 'spreading two fingers zoomed the canvas in (' + Math.round(w0) + 'px to ' + Math.round(cv0.getBoundingClientRect().width) + 'px)');
+    // a first finger that had begun a stroke is taken back when the second lands
+    var r1 = cv0.getBoundingClientRect(), sx = r1.left + 40, sy = r1.top + 40;
+    tp('pointerdown', 21, sx, sy); tp('pointermove', 21, sx + 30, sy); tp('pointerdown', 22, sx + 60, sy + 60);
+    say(d.colors().length === 0, 'a stroke begun by the first finger is taken back when a second finger lands');
+    tp('pointerup', 22, sx + 60, sy + 60); tp('pointerup', 21, sx + 30, sy);
+    say(d.colors().length === 0 && !ed.test.doc.canUndo(), 'and lifting the fingers afterwards draws nothing either');
+    // one finger still draws
+    var r2 = cv0.getBoundingClientRect(), px0 = r2.left + (3.5 / W) * r2.width, py0 = r2.top + (3.5 / H) * r2.height;
+    tp('pointerdown', 31, px0, py0); tp('pointermove', 31, px0 + (r2.width / W) * 3, py0); tp('pointerup', 31, px0 + (r2.width / W) * 3, py0);
+    say(d.colors().length === 1 && d.get(3, 3) !== 0 && d.get(6, 3) !== 0, 'one finger still draws');
+    click($('#undo'));
     ed.test.setColor(C.hexToColor('#1A9C98'));
     for (var x = 2; x < 8; x++) await drawDot(x, 5, W, H);
     click($('#save'));
@@ -225,7 +255,7 @@ SHOT = "(function () {" + COMMON + r"""
       if (want === 'libraries') location.hash = '#/libraries';
       else if (want === 'import') location.hash = '#/import';
       else if (want === 'library') click($('.libcard'));
-      else if (want === 'editor') { click($('.libcard')); await until(function () { return $('.tile'); }, 'tiles'); click($('.tile')); await editorReady(); }
+      else if (want === 'editor' || want === 'colour') { click($('.libcard')); await until(function () { return $('.tile'); }, 'tiles'); click($('.tile')); await editorReady(); if (want === 'colour') click($('#colbtn')); }
       await sleep(600);
       if (want === 'libraries') $$('details').forEach(function (d) { d.open = true; });
     } catch (e) { document.title = 'FAILED ' + e.message; }

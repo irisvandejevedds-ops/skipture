@@ -131,40 +131,75 @@
   }
   function afterStroke(changed) { if (changed) { if (tool === 'pen') recent(color); refreshUI(); } }
 
+  // One finger (or a mouse, or a pen) draws. A second finger turns the gesture into pan and zoom, and whatever the first finger had started is taken back.
+  var pts = {}, pinch = null, pendingFill = null;
+  function nPts() { return Object.keys(pts).length; }
+  function twoPts() { var k = Object.keys(pts); return [pts[k[0]], pts[k[1]]]; }
+  function abortStroke() {
+    if (drawing) {
+      drawing = false; last = null;
+      var s = doc.endStroke();
+      if (s) { var op = doc.undo(); doc.redoStack.length = 0; if (op) pushToCanvas(op.idx); refreshUI(); }
+    }
+    pendingFill = null;
+  }
+  function pinchState() { var p = twoPts(); return { d: Math.max(1, Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y)), mx: (p[0].x + p[1].x) / 2, my: (p[0].y + p[1].y) / 2 }; }
+  function doFill(p) { var ch = doc.fill(p[0], p[1], color); if (ch.length) { pushToCanvas(ch); recent(color); refreshUI(); } }
+
   cv.addEventListener('pointerdown', function (e) {
-    if (ro || (e.button !== undefined && e.button > 0)) return;
+    if (e.pointerType !== 'touch' && e.button !== undefined && e.button > 0) return;
     e.preventDefault();
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY, type: e.pointerType };
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released */ }
+    if (nPts() >= 2) { abortStroke(); if (nPts() === 2) pinch = pinchState(); return; }
+    if (ro) return;
     var p = cell(e);
     if (tool === 'fill') {
-      var ch = doc.fill(p[0], p[1], color);
-      if (ch.length) { pushToCanvas(ch); recent(color); refreshUI(); }
+      if (e.pointerType === 'touch') pendingFill = { p: p, x: e.clientX, y: e.clientY };     // wait: this may be the start of a pinch
+      else doFill(p);
       return;
     }
-    drawing = true; last = p; try { cv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released */ }
+    drawing = true; last = p;
     doc.beginStroke();
     var v = paintValue();
     if (doc.paint(p[0], p[1], v)) pushToCanvas([p[1] * W + p[0]]);
   });
   cv.addEventListener('pointermove', function (e) {
+    if (pts[e.pointerId]) { pts[e.pointerId].x = e.clientX; pts[e.pointerId].y = e.clientY; }
+    if (pinch && nPts() === 2) {
+      var n = pinchState(), r = cv.getBoundingClientRect(), ux = (pinch.mx - r.left) / zoom, uy = (pinch.my - r.top) / zoom;
+      zoom = Math.max(1, Math.min(40, zoom * n.d / pinch.d));
+      layout();
+      var r2 = cv.getBoundingClientRect();
+      stage.scrollLeft += (r2.left + ux * zoom) - n.mx; stage.scrollTop += (r2.top + uy * zoom) - n.my;
+      pinch = n;
+      return;
+    }
+    if (pendingFill && Math.hypot(e.clientX - pendingFill.x, e.clientY - pendingFill.y) > 12) pendingFill = null;
     var p = cell(e);
     if (doc && doc.inBounds(p[0], p[1])) { var c = doc.get(p[0], p[1]); $('pos').textContent = p[0] + ', ' + p[1] + (C.alpha(c) ? '  ' + C.colorToHex(c) : '  transparent'); }
     if (!drawing) return;
-    var pts = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
-    if (!pts.length) pts = [e];
+    var cs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+    if (!cs.length) cs = [e];
     var v = paintValue();
-    pts.forEach(function (pe) {
+    cs.forEach(function (pe) {
       var q = cell(pe);
       if (q[0] === last[0] && q[1] === last[1]) return;
       var ch = doc.line(last[0], last[1], q[0], q[1], v); last = q;
       if (ch.length) pushToCanvas(ch);
     });
   });
-  function endDraw() {
+  function endDraw(e) {
+    var had = e && pts[e.pointerId];
+    if (e) delete pts[e.pointerId];
+    if (pinch) { if (nPts() < 2) pinch = null; return; }          // lifting a finger after a pinch never draws
+    if (pendingFill && e && e.type === 'pointerup' && had) { var f = pendingFill; pendingFill = null; doFill(f.p); return; }
+    pendingFill = null;
     if (!drawing) return;
     drawing = false; last = null;
     afterStroke(doc.endStroke());
   }
-  cv.addEventListener('pointerup', endDraw); cv.addEventListener('pointercancel', endDraw);
+  cv.addEventListener('pointerup', endDraw); cv.addEventListener('pointercancel', function (e) { if (nPts() <= 1 && !pinch) abortStroke(); endDraw(e); });
   cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
   function applyMeta(op, forward) {
@@ -228,10 +263,10 @@
     color = c;
     var h = C.colorToHsv(c);
     hsv = keepHue ? { h: hsv.h, s: h.s, v: h.v } : (h.s === 0 || h.v === 0 ? { h: hsv.h, s: h.s, v: h.v } : h);
-    $('cur').style.background = C.colorToHex(c); $('hex').value = C.colorToHex(c);
+    $('cur').style.background = C.colorToHex(c); $('colsw').style.background = C.colorToHex(c); $('hex').value = C.colorToHex(c);
     drawWheel();
   }
-  function fromHsv() { color = C.hsvToColor(hsv.h, hsv.s, hsv.v); $('cur').style.background = C.colorToHex(color); $('hex').value = C.colorToHex(color); drawWheel(); }
+  function fromHsv() { color = C.hsvToColor(hsv.h, hsv.s, hsv.v); $('cur').style.background = C.colorToHex(color); $('colsw').style.background = C.colorToHex(color); $('hex').value = C.colorToHex(color); drawWheel(); }
   function wheelPoint(e) {
     var r = wheel.getBoundingClientRect(), sx = WS / r.width;
     return [(e.clientX - r.left) * sx, (e.clientY - r.top) * sx];
@@ -253,6 +288,14 @@
   wheel.addEventListener('pointerup', function () { wmode = null; });
   wheel.addEventListener('pointercancel', function () { wmode = null; });
   $('hex').addEventListener('change', function () { var c = C.hexToColor(this.value); if (c) setColor(c); else this.value = C.colorToHex(color); });
+
+  // ---------- the colour pop-out ----------
+  var pop = $('colpop'), colbtn = $('colbtn');
+  function showPop(on) { pop.hidden = !on; if (on) { pop.style.top = (colbtn.offsetTop + colbtn.offsetHeight + 8) + 'px'; pop.style.left = Math.max(0, Math.min(colbtn.offsetLeft, root.clientWidth - pop.offsetWidth - 4)) + 'px'; } colbtn.setAttribute('aria-expanded', String(on)); colbtn.classList.toggle('on', on); if (on) drawWheel(); }
+  colbtn.addEventListener('click', function (e) { e.stopPropagation(); showPop(pop.hidden); });
+  listen(document, 'pointerdown', function (e) { if (!pop.hidden && !pop.contains(e.target) && !colbtn.contains(e.target)) showPop(false); });
+  listen(document, 'keydown', function (e) { if (e.key === 'Escape' && !pop.hidden) { showPop(false); colbtn.focus(); } });
+  colbtn.addEventListener('keydown', function () { /* default button behaviour */ });
 
   // ---------- saving ----------
   function save() {
@@ -327,7 +370,7 @@
     var oc = $('pvo'); oc.width = W; oc.height = H; oc.getContext('2d').putImageData((function () { var d = ctx.createImageData(W, H); orig.toRGBA(d.data); return d; })(), 0, 0);
     var ok = Math.max(2, Math.min(6, Math.floor(160 / Math.max(W, H)) || 2)); oc.style.width = W * ok + 'px'; oc.style.height = H * ok + 'px';
     fitZoom(); layout(); setTool('pen'); setColor(color); drawRecent(); refreshUI();
-    if (ro) Array.prototype.forEach.call(document.querySelectorAll('.toolbar .tool:not(#zoomin):not(#zoomout):not(#gridbtn), #save, #savenext'), function (b) { b.disabled = true; });
+    if (ro) Array.prototype.forEach.call(document.querySelectorAll('.toolbar .tool:not(#zoomin):not(#zoomout):not(#gridbtn):not(#colbtn), #save, #savenext'), function (b) { b.disabled = true; });
     root.dataset.ready = '1';
     api.test = { doc: doc, undo: undo, redo: redo, setTool: setTool, setColor: setColor, setBg: function (m) { var r = document.querySelector('input[name=bg][value=' + m + ']'); r.checked = true; r.dispatchEvent(new Event('change')); } };
   }).catch(function (err) { $('status').textContent = 'Could not load this sprite: ' + err.message; });
