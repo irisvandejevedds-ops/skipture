@@ -41,7 +41,9 @@ async function handle(request, env) {
     const size = Number(request.headers.get('Content-Length') || 0);
     if (size > (route === 'import' ? MAX_ZIP : MAX_JSON)) return fail('That is too large.', 413);
     const stub = env.ROOM.get(env.ROOM.idFromName(room));
-    const res = await stub.fetch(`https://room/${route}${url.search}`, { method: request.method, headers: { Authorization: request.headers.get('Authorization') || '', 'Content-Type': request.headers.get('Content-Type') || '' }, body: post ? request.body : undefined });
+    const payload = post ? await request.arrayBuffer() : undefined;      // read it all first: the room may answer (say, refuse) before it has read a large upload
+    if (payload && payload.byteLength > (route === 'import' ? MAX_ZIP : MAX_JSON)) return fail('That is too large.', 413);
+    const res = await stub.fetch(`https://room/${route}${url.search}`, { method: request.method, headers: { Authorization: request.headers.get('Authorization') || '', 'Content-Type': request.headers.get('Content-Type') || '' }, body: payload });
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(HEAD)) headers.set(k, v);
     return new Response(res.body, { status: res.status, headers });
