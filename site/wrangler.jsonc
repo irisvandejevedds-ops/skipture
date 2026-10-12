@@ -1,8 +1,11 @@
 {
   "name": "skipture-site",
+  "main": "../worker/index.js",
   "compatibility_date": "2026-09-01",
-  // static files only: the whole app runs in the visitor's browser (see build.py)
-  "assets": { "directory": "./dist", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
+  // the app (static files, see build.py) plus the rooms (a Durable Object per room, see ../worker)
+  "assets": { "directory": "./dist", "binding": "ASSETS", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page", "run_worker_first": ["/api/*"] },
+  "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }, { "name": "GATE", "class_name": "Gate" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room", "Gate"] }],
   "routes": [{ "pattern": "skipture.jessevriend.com", "custom_domain": true }],
   "observability": { "enabled": false }
 }

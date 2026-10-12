@@ -7,14 +7,14 @@
   function mount(o) {
   var root = document.getElementById('editor');
   var sprite = o.sprite, W = sprite.width, H = sprite.height;
-  var offs = [];
+  var offs = [], ro = !!o.readOnly;
   function listen(target, type, fn, opts) { target.addEventListener(type, fn, opts); offs.push(function () { target.removeEventListener(type, fn, opts); }); }
   var $ = function (id) { return document.getElementById(id); };
   var cv = $('cv'), gridCv = $('grid'), stage = $('stage'), ctx = cv.getContext('2d', { willReadFrequently: true });
   cv.width = W; cv.height = H;
 
   var doc = null, orig = null, img = null;
-  var tool = 'pen', color = C.hexToColor('#B4452B'), hsv = C.colorToHsv(color);
+  var tool = 'pen', color = C.hexToColor('#1A9C98'), hsv = C.colorToHsv(color);
   var bgMode = sprite.bgMode, bgColor = C.hexToColor(sprite.bgColor) || C.pack(255, 255, 255, 255);
   var zoom = 8, showGrid = true, metaDirty = false, saving = false;
   var drawing = false, last = null;
@@ -132,7 +132,7 @@
   function afterStroke(changed) { if (changed) { if (tool === 'pen') recent(color); refreshUI(); } }
 
   cv.addEventListener('pointerdown', function (e) {
-    if (e.button !== undefined && e.button > 0) return;
+    if (ro || (e.button !== undefined && e.button > 0)) return;
     e.preventDefault();
     var p = cell(e);
     if (tool === 'fill') {
@@ -256,7 +256,7 @@
 
   // ---------- saving ----------
   function save() {
-    if (saving) return Promise.resolve(false);
+    if (saving || ro) return Promise.resolve(false);
     saving = true; refreshUI();
     var changed = doc.changedFrom(orig.px), edited = doc.isEdited(), blank = doc.isBlank();
     return L.encodePng(W, H, doc.toRGBA())
@@ -277,7 +277,7 @@
 
   // ---------- bringing in a picture ----------
   function bring(file) {
-    if (!file) return;
+    if (!file || ro) return;
     if (!/\.png$/i.test(file.name) && file.type !== 'image/png') { $('status').textContent = 'That is not a PNG picture.'; return; }
     var url = URL.createObjectURL(file), im = new Image();
     im.onload = function () {
@@ -327,6 +327,7 @@
     var oc = $('pvo'); oc.width = W; oc.height = H; oc.getContext('2d').putImageData((function () { var d = ctx.createImageData(W, H); orig.toRGBA(d.data); return d; })(), 0, 0);
     var ok = Math.max(2, Math.min(6, Math.floor(160 / Math.max(W, H)) || 2)); oc.style.width = W * ok + 'px'; oc.style.height = H * ok + 'px';
     fitZoom(); layout(); setTool('pen'); setColor(color); drawRecent(); refreshUI();
+    if (ro) Array.prototype.forEach.call(document.querySelectorAll('.toolbar .tool:not(#zoomin):not(#zoomout):not(#gridbtn), #save, #savenext'), function (b) { b.disabled = true; });
     root.dataset.ready = '1';
     api.test = { doc: doc, undo: undo, redo: redo, setTool: setTool, setColor: setColor, setBg: function (m) { var r = document.querySelector('input[name=bg][value=' + m + ']'); r.checked = true; r.dispatchEvent(new Event('change')); } };
   }).catch(function (err) { $('status').textContent = 'Could not load this sprite: ' + err.message; });

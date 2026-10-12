@@ -13,17 +13,24 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with: { node-version: "22" }
       - name: Python dependencies
         run: pip install fastapi httpx argon2-cffi jinja2 python-multipart pytest uvicorn
-      - name: Server side (libraries, zips, pages)
+      - name: Private server version (libraries, zips, pages)
         run: cd app && python -m pytest -q
       - name: Editor logic
         run: cd app && node --test tests/core.test.js
-      - name: Browser app logic (libraries, zip and PNG files, merging)
-        run: cd web && node --test tests/
+      - name: Rules, rooms and permissions (libraries, zip and PNG files, merging, who may do what)
+        run: cd web && node --test tests/*.test.js
+      - name: The room server (SQLite store, passphrase and sessions)
+        run: cd worker && node --test tests/worker.test.js
       - name: The site builds
         run: python3 site/build.py
+      - name: The real Worker, over HTTP (rooms, guests, artists, Durable Objects)
+        run: |
+          npx --yes wrangler@4 dev --config site/wrangler.jsonc --port 8788 --persist-to /tmp/wd > /tmp/wrangler-dev.log 2>&1 &
+          for i in $(seq 1 90); do curl -s -o /dev/null http://localhost:8788/ && break; sleep 2; done
+          cd worker && SKIPTURE_URL=http://localhost:8788 node --test tests/e2e.test.js || { tail -40 /tmp/wrangler-dev.log; exit 1; }
 
   deploy:
     needs: test
@@ -34,8 +41,10 @@ jobs:
       HAVE_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with: { node-version: "22" }
       - name: Build the site
         if: env.HAVE_CLOUDFLARE == 'true'
         run: python3 site/build.py

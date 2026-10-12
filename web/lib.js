@@ -277,9 +277,11 @@
   }
 
   /** Merge a library zip. A zip for a library we know adds art only where it is safe: slots that are empty or still as received take the new art, slots that were
-   *  redrawn or humanized are left alone. A zip for an unknown library creates it (a finished-library export keeps its progress, so it works as a backup). -> report */
-  async function importZip(S, bytes, origin) {
+   *  redrawn or humanized are left alone. A zip for an unknown library creates it (an artist's finished-library export keeps its progress, so it works as a backup;
+   *  pass {restore:false} to ignore the progress a zip claims). -> report */
+  async function importZip(S, bytes, origin, opts) {
     origin = origin || 'developer';
+    var restore = !opts || opts.restore !== false;
     var z = readZip(bytes);
     if (z.names.indexOf('schema.json') < 0) throw new LibError('There is no schema.json at the top of that zip.');
     var schema;
@@ -293,7 +295,7 @@
       report.created = true; lib = await S.library(id);
     }
     report.library = { id: lib.id, name: lib.name };
-    var backup = report.created && schema.purpose === 'library', names = {};
+    var backup = restore && report.created && schema.purpose === 'library', names = {};
     z.names.forEach(function (n) { names[n] = 1; });
     for (var i = 0; i < schema.sprites.length; i++) {
       var d = schema.sprites[i], label = d && typeof d === 'object' ? d.slot || '?' : '?';
@@ -331,7 +333,7 @@
   async function removeLibrary(S, id) { await S.removeLibrary(id); }
 
   var api = { LibError: LibError, SLOT: SLOT, HEX: HEX, KINDS: KINDS, STATES: STATES, STATE_WORDS: STATE_WORDS, MAX_SIDE: MAX_SIDE, MAX_PNG: MAX_PNG, KEEP_REVISIONS: KEEP_REVISIONS,
-    iso: iso, slugify: slugify, crc32: crc32, pngInfo: pngInfo, encodePng: encodePng, blankPng: blankPng, writeZip: writeZip, readZip: readZip,
+    iso: iso, revise: revise, slugify: slugify, crc32: crc32, pngInfo: pngInfo, encodePng: encodePng, blankPng: blankPng, writeZip: writeZip, readZip: readZip,
     createLibrary: createLibrary, addSlot: addSlot, progress: progress, overall: overall, saveArt: saveArt, setState: setState, restoreRevision: restoreRevision,
     exportZip: exportZip, importZip: importZip, removeLibrary: removeLibrary, touchLibrary: touchLibrary };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.SkipLib = api;
