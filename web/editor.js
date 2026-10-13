@@ -118,10 +118,12 @@
   }
 
   // ---------- tools ----------
+  var prevTool = 'pen', picking = false;
   function setTool(t) {
+    if (t === 'pick' && tool !== 'pick') prevTool = tool;
     tool = t;
     Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) { b.classList.toggle('on', b.dataset.tool === t); });
-    cv.style.cursor = t === 'fill' ? 'cell' : 'crosshair';
+    cv.style.cursor = t === 'fill' ? 'cell' : t === 'pick' ? 'copy' : 'crosshair';
   }
   function paintValue() { return tool === 'erase' ? Doc.eraseValue(bgMode, bgColor) : color; }
 
@@ -135,7 +137,15 @@
   var pts = {}, pinch = null, pendingFill = null;
   function nPts() { return Object.keys(pts).length; }
   function twoPts() { var k = Object.keys(pts); return [pts[k[0]], pts[k[1]]]; }
+  function pickAt(p) {
+    if (!doc.inBounds(p[0], p[1])) return;
+    var c = doc.get(p[0], p[1]);
+    if (C.alpha(c) === 0) { $('status').textContent = 'That pixel is transparent, so there is no colour to pick.'; return; }
+    setColor(C.pack(C.red(c), C.green(c), C.blue(c), 255));
+    $('status').textContent = 'Picked ' + C.colorToHex(c) + '.';
+  }
   function abortStroke() {
+    picking = false;
     if (drawing) {
       drawing = false; last = null;
       var s = doc.endStroke();
@@ -152,6 +162,7 @@
     pts[e.pointerId] = { x: e.clientX, y: e.clientY, type: e.pointerType };
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released */ }
     if (nPts() >= 2) { abortStroke(); if (nPts() === 2) pinch = pinchState(); return; }
+    if (tool === 'pick' || (e.altKey && e.pointerType !== 'touch')) { picking = true; pickAt(cell(e)); return; }     // the dropper, or Alt with any tool
     if (ro) return;
     var p = cell(e);
     if (tool === 'fill') {
@@ -175,6 +186,7 @@
       pinch = n;
       return;
     }
+    if (picking) { pickAt(cell(e)); return; }
     if (pendingFill && Math.hypot(e.clientX - pendingFill.x, e.clientY - pendingFill.y) > 12) pendingFill = null;
     var p = cell(e);
     if (doc && doc.inBounds(p[0], p[1])) { var c = doc.get(p[0], p[1]); $('pos').textContent = p[0] + ', ' + p[1] + (C.alpha(c) ? '  ' + C.colorToHex(c) : '  transparent'); }
@@ -192,6 +204,7 @@
   function endDraw(e) {
     var had = e && pts[e.pointerId];
     if (e) delete pts[e.pointerId];
+    if (picking && !pinch) { picking = false; if (tool === 'pick') setTool(prevTool); return; }       // after a pick the pen (or whatever you had) comes back
     if (pinch) { if (nPts() < 2) pinch = null; return; }          // lifting a finger after a pinch never draws
     if (pendingFill && e && e.type === 'pointerup' && had) { var f = pendingFill; pendingFill = null; doFill(f.p); return; }
     pendingFill = null;
@@ -354,7 +367,7 @@
     if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
     else if (mod && k === 'y') { e.preventDefault(); redo(); }
     else if (mod && k === 's') { e.preventDefault(); save(); }
-    else if (!mod && k === 'b') setTool('pen'); else if (!mod && k === 'e') setTool('erase'); else if (!mod && k === 'g') setTool('fill');
+    else if (!mod && k === 'b') setTool('pen'); else if (!mod && k === 'e') setTool('erase'); else if (!mod && k === 'g') setTool('fill'); else if (!mod && k === 'i') setTool('pick');
   });
 
   // ---------- go ----------

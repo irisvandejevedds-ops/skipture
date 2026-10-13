@@ -94,8 +94,27 @@ DEMO = r"""
     tp('pointerdown', 31, px0, py0); tp('pointermove', 31, px0 + (r2.width / W) * 3, py0); tp('pointerup', 31, px0 + (r2.width / W) * 3, py0);
     say(d.colors().length === 1 && d.get(3, 3) !== 0 && d.get(6, 3) !== 0, 'one finger still draws');
     click($('#undo'));
+
+    // the dropper
     ed.test.setColor(C.hexToColor('#1A9C98'));
     for (var x = 2; x < 8; x++) await drawDot(x, 5, W, H);
+    ed.test.setColor(C.hexToColor('#E040A0'));
+    click($('[data-tool=pick]'));
+    say($('[data-tool=pick]').classList.contains('on'), 'the dropper is on the toolbar');
+    ptr($('#cv'), 'pointerdown', 3, 5, W, H); ptr($('#cv'), 'pointerup', 3, 5, W, H);
+    say($('#hex').value.toUpperCase() === '#1A9C98', 'the dropper picked the colour of the pixel it touched (' + $('#hex').value + ')');
+    say($('[data-tool=pen]').classList.contains('on') && !$('[data-tool=pick]').classList.contains('on'), 'the pen comes back after one pick');
+    say(d.colors().length === 1, 'picking changed nothing in the picture');
+    ed.test.setColor(C.hexToColor('#E040A0'));
+    $('#cv').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 5, pointerType: 'mouse', button: 0, altKey: true, clientX: $('#cv').getBoundingClientRect().left + (4.5 / W) * $('#cv').getBoundingClientRect().width, clientY: $('#cv').getBoundingClientRect().top + (5.5 / H) * $('#cv').getBoundingClientRect().height }));
+    $('#cv').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 5, pointerType: 'mouse', button: 0 }));
+    say($('#hex').value.toUpperCase() === '#1A9C98' && d.colors().length === 1, 'Alt-click picks a colour with the pen still selected, and draws nothing');
+    ed.test.setColor(C.hexToColor('#E040A0'));
+    click($('[data-tool=pick]')); ptr($('#cv'), 'pointerdown', 12, 12, W, H); ptr($('#cv'), 'pointerup', 12, 12, W, H);
+    say($('#hex').value.toUpperCase() === '#E040A0' && /transparent/.test($('#status').textContent), 'picking a transparent pixel says so and keeps the colour');
+    setTimeout(function () {}, 0);
+    ed.test.setColor(C.hexToColor('#1A9C98'));
+    for (var x2 = 2; x2 < 8; x2++) await drawDot(x2, 5, W, H);
     click($('#save'));
     await until(function () { return /Saved\./.test($('#status').textContent); }, 'the save');
     say($('#statechip').textContent === 'redrawn', 'the artist\'s drawing on an empty slot is saved as redrawn');
